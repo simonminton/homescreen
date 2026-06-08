@@ -126,7 +126,7 @@ function skyPalette(phase, condition) {
 const el = (id) => document.getElementById(id);
 const dom = {
   time: el("time"), date: el("date"),
-  locName: el("locName"), location: el("location"),
+  locName: el("locName"), location: el("location"), preciseBtn: el("preciseBtn"),
   worldClocks: el("worldClocks"),
   temp: el("temp"), tempC: el("tempC"), tempF: el("tempF"),
   condition: el("condition"), tempHi: el("tempHi"), tempLo: el("tempLo"),
@@ -425,16 +425,40 @@ function renderRain(times, probs) {
    Weather fetch + render
    ------------------------------------------------------------------------- */
 
-async function getLocation() {
-  if (!navigator.geolocation) return { ...FALLBACK, fallback: true };
+// Approximate location from IP — no permission prompt. Tries two keyless,
+// HTTPS, CORS-friendly providers in turn.
+async function ipLocate() {
+  const providers = [
+    { url: "https://ipwho.is/", pick: (j) => (j.success === false ? null : { lat: +j.latitude, lon: +j.longitude, name: j.city }) },
+    { url: "https://get.geojs.io/v1/ip/geo.json", pick: (j) => ({ lat: +j.latitude, lon: +j.longitude, name: j.city }) },
+  ];
+  for (const p of providers) {
+    try {
+      const r = await fetch(p.url);
+      if (!r.ok) continue;
+      const loc = p.pick(await r.json());
+      if (loc && !isNaN(loc.lat) && !isNaN(loc.lon)) return loc;
+    } catch (e) { /* try next */ }
+  }
+  return null;
+}
+
+// Precise GPS — only ever called from an explicit user click, so the browser
+// permission prompt happens on demand rather than on load.
+function preciseLocate() {
   return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null);
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ name: null, lat: pos.coords.latitude, lon: pos.coords.longitude, fallback: false }),
-      () => resolve({ ...FALLBACK, fallback: true }),
-      { timeout: 8000, maximumAge: 10 * 60 * 1000 }
+      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude, name: null }),
+      () => resolve(null),
+      { timeout: 8000, maximumAge: 10 * 60 * 1000, enableHighAccuracy: true }
     );
   });
 }
+
+const LOC_KEY = "hs:loc";
+const saveLoc = (loc) => { try { localStorage.setItem(LOC_KEY, JSON.stringify(loc)); } catch (e) {} };
+const loadLoc = () => { try { return JSON.parse(localStorage.getItem(LOC_KEY)); } catch (e) { return null; } };
 
 // Reverse-geocode for a display name (best-effort; silent on failure).
 async function resolveName(lat, lon) {
@@ -528,6 +552,27 @@ async function loadWeather() {
   }
 }
 
+// Apply a resolved location: update coords + label, persist, and fetch weather.
+// source: "precise" | "ip" | "fallback"
+async function setLocation(loc, source) {
+  coords = { lat: loc.lat, lon: loc.lon };
+  dom.location.classList.toggle("fallback", source === "fallback");
+  dom.preciseBtn.hidden = source === "precise";
+  dom.preciseBtn.textContent = "use precise location";
+
+  if (source === "fallback") dom.locName.textContent = "Showing " + loc.name;
+  else dom.locName.textContent = loc.name || "Your location";
+
+  saveLoc({ lat: loc.lat, lon: loc.lon, name: loc.name || null, source });
+  await loadWeather();
+
+  // Precise fixes carry no name — fill it in afterwards, best-effort.
+  if (source === "precise" && !loc.name) {
+    const n = await resolveName(loc.lat, loc.lon);
+    if (n) { dom.locName.textContent = n; saveLoc({ lat: loc.lat, lon: loc.lon, name: n, source }); }
+  }
+}
+
 async function init() {
   tickClock();
   setInterval(tickClock, 1000);
@@ -536,19 +581,25 @@ async function init() {
   updateSky();
   setInterval(() => updateSky(), 60 * 1000);
 
-  const loc = await getLocation();
-  coords = loc;
+  // Opt-in precise location (triggers the GPS prompt only on click).
+  dom.preciseBtn.addEventListener("click", async () => {
+    dom.preciseBtn.textContent = "locating…";
+    const loc = await preciseLocate();
+    if (loc) await setLocation(loc, "precise");
+    else dom.preciseBtn.textContent = "location blocked";
+  });
 
-  if (loc.fallback) {
-    dom.location.classList.add("fallback");
-    dom.locName.textContent = "Showing " + loc.name;
-  } else {
-    dom.locName.textContent = "Locating…";
-    const name = await resolveName(loc.lat, loc.lon);
-    dom.locName.textContent = name || "Your location";
+  // 1. Instant render from the last known location, if any.
+  const cached = loadLoc();
+  if (cached && cached.lat != null) await setLocation(cached, cached.source || "ip");
+
+  // 2. Silently refresh from IP — unless the user previously chose precise.
+  if (!cached || cached.source !== "precise") {
+    const ip = await ipLocate();
+    if (ip) await setLocation(ip, "ip");
+    else if (!cached) await setLocation(FALLBACK, "fallback");
   }
 
-  await loadWeather();
   setInterval(loadWeather, WEATHER_REFRESH_MS);
 }
 

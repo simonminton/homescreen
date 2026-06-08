@@ -162,6 +162,22 @@ body {
 }
 .location.fallback .dot { background: #e8a74f; box-shadow: 0 0 8px 1px rgba(232,167,79,0.6); }
 
+.precise-btn {
+  margin-left: 0.4em;
+  background: none;
+  border: 1px solid var(--ink-line);
+  border-radius: 2px;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 0.35em 0.7em;
+  cursor: pointer;
+  transition: color 0.3s var(--ease), border-color 0.3s var(--ease);
+}
+.precise-btn:hover { color: var(--ink); border-color: var(--ink-soft); }
+
 .world-clocks { display: flex; gap: 1.6rem; text-align: right; }
 .wclock { display: flex; flex-direction: column; gap: 0.3em; align-items: flex-end; }
 .wclock .wc-city { color: var(--ink-faint); font-size: 0.66rem; }
