@@ -134,6 +134,7 @@ const dom = {
   wxError: el("wxError"),
   rainBars: el("rainBars"), rainAxis: el("rainAxis"), rainPeak: el("rainPeak"),
   uvBars: el("uvBars"), uvAxis: el("uvAxis"), uvPeak: el("uvPeak"),
+  weekPanel: el("weekPanel"), scrollHint: el("scrollHint"),
   sky: el("sky"), orb: el("orb"), veil: el("veil"),
 };
 
@@ -392,38 +393,41 @@ addEventListener("resize", () => {
 
 const pad = (n) => String(n).padStart(2, "0");
 
-// Slice the next 24 hourly entries starting at the current local hour.
-function next24(times, values) {
+// Today's 24 hourly entries (00:00–23:00), flagged with now / past.
+function todaySlice(times, values) {
   const now = new Date();
-  let start = times.findIndex((t) => new Date(t) >= new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()));
-  if (start < 0) start = 0;
+  const y = now.getFullYear(), m = now.getMonth(), d = now.getDate(), hr = now.getHours();
   const out = [];
-  for (let i = start; i < start + 24 && i < times.length; i++)
-    out.push({ t: new Date(times[i]), v: values[i] ?? 0 });
+  for (let i = 0; i < times.length; i++) {
+    const t = new Date(times[i]);
+    if (t.getFullYear() === y && t.getMonth() === m && t.getDate() === d)
+      out.push({ t, v: values[i] ?? 0, now: t.getHours() === hr, past: t.getHours() < hr });
+  }
   return out;
 }
 
-// Hour labels every 6 hours, one cell per bar so they stay aligned.
+// Hour labels every 6 hours plus a "now" marker, one cell per bar.
 function renderAxis(axisEl, slice) {
   axisEl.innerHTML = "";
   slice.forEach((h) => {
     const ax = document.createElement("span");
     const hr = h.t.getHours();
-    if (hr % 6 === 0) { ax.className = "tick"; ax.textContent = pad(hr); }
+    if (h.now) { ax.className = "tick now"; ax.textContent = "now"; }
+    else if (hr % 6 === 0) { ax.className = "tick"; ax.textContent = pad(hr); }
     axisEl.appendChild(ax);
   });
 }
 
 function renderRain(times, probs) {
-  const slice = next24(times, probs);
+  const slice = todaySlice(times, probs);
   dom.rainBars.innerHTML = "";
   let peak = 0;
   slice.forEach((h, i) => {
     peak = Math.max(peak, h.v);
     const bar = document.createElement("div");
-    bar.className = "bar rbar" + (i === 0 ? " now" : "") + (h.v < 5 ? " dry" : "");
+    bar.className = "bar rbar" + (h.now ? " now" : "") + (h.past ? " past" : "") + (h.v < 5 ? " dry" : "");
     bar.style.height = Math.max(2, h.v) + "%";
-    bar.style.animationDelay = 760 + i * 22 + "ms";
+    bar.style.animationDelay = 760 + i * 16 + "ms";
     bar.title = `${pad(h.t.getHours())}:00 — ${h.v}%`;
     dom.rainBars.appendChild(bar);
   });
@@ -442,7 +446,7 @@ function uvBarColor(uv) {
 
 function renderUV(times, uvs) {
   if (!uvs) { dom.uvBars.innerHTML = ""; dom.uvAxis.innerHTML = ""; dom.uvPeak.textContent = "—"; return; }
-  const slice = next24(times, uvs);
+  const slice = todaySlice(times, uvs);
   dom.uvBars.innerHTML = "";
   const SCALE = 11; // top of the colour ramp; extreme UV clamps to full height
   let peak = 0;
@@ -450,15 +454,63 @@ function renderUV(times, uvs) {
     const uv = Math.max(0, h.v);
     peak = Math.max(peak, uv);
     const bar = document.createElement("div");
-    bar.className = "bar uvbar" + (i === 0 ? " now" : "") + (uv < 0.5 ? " zero" : "");
+    bar.className = "bar uvbar" + (h.now ? " now" : "") + (h.past ? " past" : "") + (uv < 0.5 ? " zero" : "");
     bar.style.height = Math.max(2, Math.min(100, (uv / SCALE) * 100)) + "%";
     if (uv >= 0.5) bar.style.background = uvBarColor(uv);
-    bar.style.animationDelay = 760 + i * 22 + "ms";
+    bar.style.animationDelay = 760 + i * 16 + "ms";
     bar.title = `${pad(h.t.getHours())}:00 — UV ${Math.round(uv * 10) / 10}`;
     dom.uvBars.appendChild(bar);
   });
   renderAxis(dom.uvAxis, slice);
   dom.uvPeak.textContent = peak > 0 ? `peak ${Math.round(peak * 10) / 10}` : "none";
+}
+
+/* ---------------------------------------------------------------------------
+   7-day forecast (glassmorphic panel)
+   ------------------------------------------------------------------------- */
+
+const fmtWeekday = new Intl.DateTimeFormat("en-GB", { weekday: "short" });
+const fmtDayMonth = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+
+function renderWeek(daily) {
+  const panel = dom.weekPanel;
+  const n = daily.time.length;
+
+  // Week-wide temperature range, so each day's bar is positioned within it.
+  let wkMin = Infinity, wkMax = -Infinity;
+  for (let i = 0; i < n; i++) {
+    wkMin = Math.min(wkMin, daily.temperature_2m_min[i]);
+    wkMax = Math.max(wkMax, daily.temperature_2m_max[i]);
+  }
+  const span = Math.max(1, wkMax - wkMin);
+
+  let html = "";
+  for (let i = 0; i < n; i++) {
+    const date = new Date(daily.time[i] + "T00:00");
+    const cond = wmoToCondition(daily.weather_code[i]);
+    const hi = daily.temperature_2m_max[i];
+    const lo = daily.temperature_2m_min[i];
+    const uv = daily.uv_index_max?.[i];
+    const band = uvBand(uv);
+    const rain = daily.precipitation_probability_max?.[i] ?? 0;
+    const left = ((lo - wkMin) / span) * 100;
+    const width = ((hi - lo) / span) * 100;
+    const dayName = i === 0 ? "Today" : fmtWeekday.format(date);
+
+    html += `<div class="day${i === 0 ? " today" : ""}">
+      <div class="d-name"><span class="d-day">${dayName}</span><span class="d-date">${fmtDayMonth.format(date)}</span></div>
+      <div class="d-icon">${pickIcon(cond.key, true)}</div>
+      <div class="d-cond">${cond.label}</div>
+      <div class="d-rain">${rain > 0 ? `<span class="rdrop">♦</span>${rain}%` : '<span class="muted">—</span>'}</div>
+      <div class="d-uv"><span class="uv-chip" style="background:${band.color}">${uv == null ? "—" : Math.round(uv)}</span><span class="d-uvlabel">${band.label}</span></div>
+      <div class="d-range" title="${round(cToF(lo))}°F – ${round(cToF(hi))}°F">
+        <span class="t-lo">${round(lo)}°</span>
+        <span class="range-track"><span class="range-fill" style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%"></span></span>
+        <span class="t-hi">${round(hi)}°</span>
+      </div>
+    </div>`;
+  }
+  panel.innerHTML = html;
 }
 
 /* ---------------------------------------------------------------------------
@@ -514,9 +566,9 @@ async function fetchWeather(lat, lon) {
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
     `&current=temperature_2m,weather_code,is_day` +
-    `&daily=temperature_2m_max,temperature_2m_min,uv_index_max,sunrise,sunset` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,uv_index_max,precipitation_probability_max,sunrise,sunset` +
     `&hourly=precipitation_probability,uv_index` +
-    `&timezone=auto&forecast_days=2`;
+    `&timezone=auto&forecast_days=7`;
   const r = await fetch(url);
   if (!r.ok) throw new Error("weather " + r.status);
   return r.json();
@@ -558,6 +610,7 @@ function renderWeather(data) {
 
   renderRain(data.hourly.time, data.hourly.precipitation_probability);
   renderUV(data.hourly.time, data.hourly.uv_index);
+  renderWeek(data.daily);
 
   // Background reflects the real sky; the orb arc reads sunrise/sunset.
   skyState.condition = cond.key;
@@ -621,6 +674,20 @@ async function init() {
   // Provisional background before data arrives, then keep the orb moving.
   updateSky();
   setInterval(() => updateSky(), 60 * 1000);
+
+  // Always open at the top (the clock), not wherever the page was last left.
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+
+  // Scroll hint glides to the forecast without leaving a #hash in the URL.
+  dom.scrollHint.addEventListener("click", (e) => {
+    e.preventDefault();
+    document.getElementById("forecast").scrollIntoView({ behavior: "smooth" });
+  });
+
+  // Fade the scroll hint away once the user starts scrolling.
+  addEventListener("scroll", () => {
+    dom.scrollHint.classList.toggle("gone", window.scrollY > 40);
+  }, { passive: true });
 
   // Opt-in precise location (triggers the GPS prompt only on click).
   dom.preciseBtn.addEventListener("click", async () => {
