@@ -133,6 +133,7 @@ const dom = {
   wxIcon: el("wxIcon"), uv: el("uv"), uvValue: el("uvValue"), uvBand: el("uvBand"),
   wxError: el("wxError"),
   rainBars: el("rainBars"), rainAxis: el("rainAxis"), rainPeak: el("rainPeak"),
+  uvBars: el("uvBars"), uvAxis: el("uvAxis"), uvPeak: el("uvPeak"),
   sky: el("sky"), orb: el("orb"), veil: el("veil"),
 };
 
@@ -386,39 +387,78 @@ addEventListener("resize", () => {
 });
 
 /* ---------------------------------------------------------------------------
-   Rain timeline (next 24h precipitation probability)
+   24h timeline charts (rain probability + UV index)
    ------------------------------------------------------------------------- */
 
-function renderRain(times, probs) {
-  // Find the index of the current local hour, take the next 24 entries.
+const pad = (n) => String(n).padStart(2, "0");
+
+// Slice the next 24 hourly entries starting at the current local hour.
+function next24(times, values) {
   const now = new Date();
   let start = times.findIndex((t) => new Date(t) >= new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()));
   if (start < 0) start = 0;
-  const slice = [];
+  const out = [];
   for (let i = start; i < start + 24 && i < times.length; i++)
-    slice.push({ t: new Date(times[i]), p: probs[i] ?? 0 });
+    out.push({ t: new Date(times[i]), v: values[i] ?? 0 });
+  return out;
+}
 
-  dom.rainBars.innerHTML = "";
-  dom.rainAxis.innerHTML = "";
-  let peak = 0;
-
-  slice.forEach((h, i) => {
-    peak = Math.max(peak, h.p);
-    const bar = document.createElement("div");
-    bar.className = "rbar" + (i === 0 ? " now" : "") + (h.p < 5 ? " dry" : "");
-    const pct = Math.max(2, h.p);
-    bar.style.height = pct + "%";
-    bar.style.animationDelay = 760 + i * 22 + "ms";
-    bar.title = `${h.t.getHours().toString().padStart(2, "0")}:00 — ${h.p}%`;
-    dom.rainBars.appendChild(bar);
-
+// Hour labels every 6 hours, one cell per bar so they stay aligned.
+function renderAxis(axisEl, slice) {
+  axisEl.innerHTML = "";
+  slice.forEach((h) => {
     const ax = document.createElement("span");
     const hr = h.t.getHours();
-    if (hr % 6 === 0) { ax.className = "tick"; ax.textContent = hr.toString().padStart(2, "0"); }
-    dom.rainAxis.appendChild(ax);
+    if (hr % 6 === 0) { ax.className = "tick"; ax.textContent = pad(hr); }
+    axisEl.appendChild(ax);
   });
+}
 
+function renderRain(times, probs) {
+  const slice = next24(times, probs);
+  dom.rainBars.innerHTML = "";
+  let peak = 0;
+  slice.forEach((h, i) => {
+    peak = Math.max(peak, h.v);
+    const bar = document.createElement("div");
+    bar.className = "bar rbar" + (i === 0 ? " now" : "") + (h.v < 5 ? " dry" : "");
+    bar.style.height = Math.max(2, h.v) + "%";
+    bar.style.animationDelay = 760 + i * 22 + "ms";
+    bar.title = `${pad(h.t.getHours())}:00 — ${h.v}%`;
+    dom.rainBars.appendChild(bar);
+  });
+  renderAxis(dom.rainAxis, slice);
   dom.rainPeak.textContent = peak > 0 ? `peak ${peak}%` : "dry";
+}
+
+// Vivid band colour for UV bars (distinct from the translucent badge tints).
+function uvBarColor(uv) {
+  if (uv < 3) return "linear-gradient(180deg, #7fd29a, rgba(127,210,154,0.4))";
+  if (uv < 6) return "linear-gradient(180deg, #f2d24a, rgba(242,210,74,0.4))";
+  if (uv < 8) return "linear-gradient(180deg, #f0a04b, rgba(240,160,75,0.4))";
+  if (uv < 11) return "linear-gradient(180deg, #e8615a, rgba(232,97,90,0.4))";
+  return "linear-gradient(180deg, #c06fd0, rgba(192,111,208,0.4))";
+}
+
+function renderUV(times, uvs) {
+  if (!uvs) { dom.uvBars.innerHTML = ""; dom.uvAxis.innerHTML = ""; dom.uvPeak.textContent = "—"; return; }
+  const slice = next24(times, uvs);
+  dom.uvBars.innerHTML = "";
+  const SCALE = 11; // top of the colour ramp; extreme UV clamps to full height
+  let peak = 0;
+  slice.forEach((h, i) => {
+    const uv = Math.max(0, h.v);
+    peak = Math.max(peak, uv);
+    const bar = document.createElement("div");
+    bar.className = "bar uvbar" + (i === 0 ? " now" : "") + (uv < 0.5 ? " zero" : "");
+    bar.style.height = Math.max(2, Math.min(100, (uv / SCALE) * 100)) + "%";
+    if (uv >= 0.5) bar.style.background = uvBarColor(uv);
+    bar.style.animationDelay = 760 + i * 22 + "ms";
+    bar.title = `${pad(h.t.getHours())}:00 — UV ${Math.round(uv * 10) / 10}`;
+    dom.uvBars.appendChild(bar);
+  });
+  renderAxis(dom.uvAxis, slice);
+  dom.uvPeak.textContent = peak > 0 ? `peak ${Math.round(peak * 10) / 10}` : "none";
 }
 
 /* ---------------------------------------------------------------------------
@@ -517,6 +557,7 @@ function renderWeather(data) {
   dom.uvBand.style.background = band.color;
 
   renderRain(data.hourly.time, data.hourly.precipitation_probability);
+  renderUV(data.hourly.time, data.hourly.uv_index);
 
   // Background reflects the real sky; the orb arc reads sunrise/sunset.
   skyState.condition = cond.key;

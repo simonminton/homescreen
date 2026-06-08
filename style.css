@@ -286,9 +286,10 @@ body {
   color: var(--ink-soft);
 }
 
-/* Rain timeline */
-.rain { display: flex; flex-direction: column; gap: 0.55rem; }
-.rain-head {
+/* 24h timeline charts (UV + rain) */
+.charts { display: flex; gap: clamp(1.5rem, 4vw, 3.2rem); }
+.chart { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.55rem; }
+.chart-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -296,9 +297,9 @@ body {
   letter-spacing: 0.22em;
   color: var(--ink-faint);
 }
-.rain-legend { color: var(--ink-soft); }
+.chart-legend { color: var(--ink-soft); }
 
-.rain-bars {
+.chart-bars {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
@@ -308,21 +309,26 @@ body {
   border-bottom: 1px solid var(--ink-line);
   padding-bottom: 1px;
 }
-.rbar {
+.bar {
   position: relative;
   min-height: 2px;
   border-radius: 2px 2px 0 0;
-  background: linear-gradient(180deg, rgba(150, 200, 255, 0.95), rgba(120, 170, 235, 0.35));
   transform-origin: bottom;
   transform: scaleY(0);
   animation: bar-grow 900ms var(--ease) forwards;
 }
+.bar.now { box-shadow: 0 0 12px rgba(255, 255, 255, 0.45); }
+
+/* Rain bars (blue) */
+.rbar { background: linear-gradient(180deg, rgba(150, 200, 255, 0.95), rgba(120, 170, 235, 0.35)); }
 .rbar.now { background: linear-gradient(180deg, #cfe6ff, rgba(170, 210, 255, 0.5)); box-shadow: 0 0 12px rgba(180, 215, 255, 0.5); }
-.rbar.dry { background: rgba(255,255,255,0.08); }
+.rbar.dry { background: rgba(255, 255, 255, 0.08); }
+/* UV bars get their colour inline (band-based); muted when zero */
+.uvbar.zero { background: rgba(255, 255, 255, 0.08) !important; }
 
 @keyframes bar-grow { to { transform: scaleY(1); } }
 
-.rain-axis {
+.chart-axis {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
@@ -330,9 +336,13 @@ body {
   letter-spacing: 0.08em;
   color: var(--ink-faint);
 }
-.rain-axis span { text-align: center; }
-.rain-axis span:not(.tick) { visibility: hidden; }
-.rain-axis span.tick { visibility: visible; }
+.chart-axis span { text-align: center; visibility: hidden; }
+.chart-axis span.tick { visibility: visible; }
+
+@media (max-width: 760px) {
+  /* Stack the charts; UV sits above rain */
+  .charts { flex-direction: column; gap: 1.2rem; }
+}
 
 @media (max-width: 560px) {
   .uv { border-left: none; padding-left: 0; }

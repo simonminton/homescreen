@@ -62,14 +62,24 @@
       <div class="wx-error" id="wxError" hidden></div>
     </section>
 
-    <!-- 24h rain timeline -->
-    <section class="rain" id="rain">
-      <div class="rain-head">
-        <span class="rain-title">RAIN · NEXT 24H</span>
-        <span class="rain-legend"><span id="rainPeak">—</span></span>
+    <!-- 24h timelines: UV (left / top) + rain (right / bottom) -->
+    <section class="charts" id="charts">
+      <div class="chart uv-chart">
+        <div class="chart-head">
+          <span class="chart-title">UV INDEX · NEXT 24H</span>
+          <span class="chart-legend" id="uvPeak">—</span>
+        </div>
+        <div class="chart-bars" id="uvBars"></div>
+        <div class="chart-axis" id="uvAxis"></div>
       </div>
-      <div class="rain-bars" id="rainBars"></div>
-      <div class="rain-axis" id="rainAxis"></div>
+      <div class="chart rain-chart">
+        <div class="chart-head">
+          <span class="chart-title">RAIN · NEXT 24H</span>
+          <span class="chart-legend" id="rainPeak">—</span>
+        </div>
+        <div class="chart-bars" id="rainBars"></div>
+        <div class="chart-axis" id="rainAxis"></div>
+      </div>
     </section>
   </main>
 
