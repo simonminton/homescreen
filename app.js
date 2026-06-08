@@ -202,31 +202,71 @@ function pickIcon(condition, isDay) {
    Background engine (sky palette + orb + condition veil + particles)
    ------------------------------------------------------------------------- */
 
-const ORB_POS = {
-  night:  { x: "78%", y: "20%" },
-  dawn:   { x: "20%", y: "70%" },
-  day:    { x: "72%", y: "22%" },
-  golden: { x: "82%", y: "62%" },
-  dusk:   { x: "26%", y: "66%" },
-};
+// Continuous orb position along an east->west arc.
+// Daytime: progress runs sunrise(0) -> sunset(1). Night: sunset -> next sunrise.
+// Returns x/y as viewport percentages, altitude (0 horizon .. 1 peak), and isDay.
+function orbArc(now, sunrise, sunset, sunriseNext) {
+  // Fall back to nominal 06:30 / 20:30 when sun times are unknown.
+  if (!sunrise || !sunset) {
+    const y = now.getFullYear(), mo = now.getMonth(), d = now.getDate();
+    sunrise = new Date(y, mo, d, 6, 30);
+    sunset = new Date(y, mo, d, 20, 30);
+    sunriseNext = new Date(y, mo, d + 1, 6, 30);
+  }
+  const t = now.getTime();
+  const sr = sunrise.getTime(), ss = sunset.getTime();
+  let prog, isDay;
 
-function applyBackground(phase, condition, isDay) {
+  if (t >= sr && t <= ss) {
+    prog = (t - sr) / (ss - sr);
+    isDay = true;
+  } else {
+    isDay = false;
+    let start, end;
+    if (t > ss) {
+      // Evening into night.
+      start = ss;
+      end = sriseTime(sunriseNext, ss);
+    } else {
+      // Pre-dawn: approximate the previous sunset as ~one day before today's.
+      start = ss - 24 * 3600 * 1000;
+      end = sr;
+    }
+    prog = (t - start) / (end - start);
+  }
+
+  prog = Math.max(0, Math.min(1, prog));
+  const x = 8 + prog * 84;                       // left horizon -> right horizon
+  const alt = Math.sin(prog * Math.PI);          // 0 at horizon, 1 at peak
+  const y = 82 - alt * 70;                        // lower %% = higher on screen
+  return { x, y, alt, isDay };
+}
+const sriseTime = (next, fallbackSunset) =>
+  next ? next.getTime() : fallbackSunset + 10 * 3600 * 1000;
+
+// Mutable sky inputs, refreshed by the weather fetch and re-read every minute.
+const skyState = { condition: "clear", sunrise: null, sunset: null, sunriseNext: null };
+
+function updateSky(now = new Date()) {
+  const { condition, sunrise, sunset, sunriseNext } = skyState;
+  const phase = timeOfDayPhase(now, sunrise, sunset);
   const [a, b, c] = skyPalette(phase, condition);
   const root = document.documentElement.style;
   root.setProperty("--sky-1", a);
   root.setProperty("--sky-2", b);
   root.setProperty("--sky-3", c);
 
-  // Orb: sun by day (warm), moon by night (cool). Hidden under thick cloud.
-  const pos = ORB_POS[phase] || ORB_POS.day;
-  root.setProperty("--orb-x", pos.x);
-  root.setProperty("--orb-y", pos.y);
+  // Orb traces a live arc; sun by day (warm, hotter near the horizon), moon by night.
+  const arc = orbArc(now, sunrise, sunset, sunriseNext);
+  root.setProperty("--orb-x", arc.x.toFixed(2) + "%");
+  root.setProperty("--orb-y", arc.y.toFixed(2) + "%");
 
-  const sunish = phase === "day" || phase === "dawn" || phase === "golden";
-  if (sunish) {
-    const warm = phase === "day" ? "rgba(255,250,235,0.95)" : "rgba(255,214,160,0.95)";
-    root.setProperty("--orb-color", warm);
-    root.setProperty("--orb-glow", phase === "golden" ? "rgba(255,170,90,0.32)" : "rgba(255,230,180,0.28)");
+  if (arc.isDay) {
+    const high = [255, 250, 235], horizon = [255, 176, 116];
+    const col = mix(horizon, high, arc.alt);
+    root.setProperty("--orb-color", `rgba(${col[0] | 0},${col[1] | 0},${col[2] | 0},0.95)`);
+    const warmGlow = Math.round(120 - arc.alt * 40); // warmer, redder glow low in the sky
+    root.setProperty("--orb-glow", `rgba(255,${170 + (arc.alt * 50) | 0},${warmGlow},${(0.34 - arc.alt * 0.06).toFixed(2)})`);
     root.setProperty("--orb-size", "150px");
   } else {
     root.setProperty("--orb-color", "rgba(232,238,255,0.92)");
@@ -243,7 +283,7 @@ function applyBackground(phase, condition, isDay) {
   else if (condition === "storm") veil = "rgba(10,12,22,0.22)";
   root.setProperty("--veil-color", veil);
 
-  startParticles(phase, condition, isDay);
+  startParticles(phase, condition, arc.isDay);
 }
 
 /* ---------------------------------------------------------------------------
@@ -454,19 +494,21 @@ function renderWeather(data) {
 
   renderRain(data.hourly.time, data.hourly.precipitation_probability);
 
-  // Background reflects real sky.
-  const sunrise = new Date(data.daily.sunrise[0]);
-  const sunset = new Date(data.daily.sunset[0]);
-  const phase = timeOfDayPhase(new Date(), sunrise, sunset);
-  applyBackground(phase, cond.key, isDay);
+  // Background reflects the real sky; the orb arc reads sunrise/sunset.
+  skyState.condition = cond.key;
+  skyState.sunrise = new Date(data.daily.sunrise[0]);
+  skyState.sunset = new Date(data.daily.sunset[0]);
+  skyState.sunriseNext = data.daily.sunrise[1] ? new Date(data.daily.sunrise[1]) : null;
+  updateSky();
 }
 
 function showWeatherError() {
   dom.wxError.hidden = false;
   dom.wxError.textContent = "Weather unavailable — retrying…";
   // Keep an atmospheric background going from the clock alone.
-  const phase = timeOfDayPhase(new Date(), null, null);
-  applyBackground(phase, "clear", phase !== "night");
+  skyState.condition = "clear";
+  skyState.sunrise = skyState.sunset = skyState.sunriseNext = null;
+  updateSky();
 }
 
 /* ---------------------------------------------------------------------------
@@ -490,9 +532,9 @@ async function init() {
   tickClock();
   setInterval(tickClock, 1000);
 
-  // Provisional background before data arrives.
-  const phase0 = timeOfDayPhase(new Date(), null, null);
-  applyBackground(phase0, "clear", phase0 !== "night");
+  // Provisional background before data arrives, then keep the orb moving.
+  updateSky();
+  setInterval(() => updateSky(), 60 * 1000);
 
   const loc = await getLocation();
   coords = loc;
