@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Homescreen</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=IBM+Plex+Mono:wght@300;400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Atmospheric layers -->
+  <div class="sky" id="sky"></div>
+  <div class="orb" id="orb"></div>
+  <canvas class="particles" id="particles"></canvas>
+  <div class="condition-veil" id="veil"></div>
+  <div class="grain"></div>
+  <div class="vignette"></div>
+
+  <main class="screen">
+    <!-- Top bar: location + secondary clocks -->
+    <header class="topbar">
+      <div class="location" id="location">
+        <span class="dot" id="locDot"></span>
+        <span id="locName">Locating…</span>
+      </div>
+      <div class="world-clocks" id="worldClocks"></div>
+    </header>
+
+    <!-- Hero -->
+    <section class="hero">
+      <h1 class="time" id="time">--:--<span class="secs" id="secs">--</span></h1>
+      <p class="date" id="date">&nbsp;</p>
+    </section>
+
+    <!-- Weather -->
+    <section class="weather" id="weather">
+      <div class="weather-main">
+        <div class="wx-icon" id="wxIcon" aria-hidden="true"></div>
+        <div class="temp-block">
+          <div class="temp" id="temp">--</div>
+          <div class="temp-alt"><span id="tempC">--°C</span><span class="sep">/</span><span id="tempF">--°F</span></div>
+        </div>
+        <div class="wx-meta">
+          <div class="condition" id="condition">—</div>
+          <div class="hilo">
+            <span class="hi"><span class="caret">▲</span><span id="tempHi">--°</span></span>
+            <span class="lo"><span class="caret">▼</span><span id="tempLo">--°</span></span>
+          </div>
+        </div>
+        <div class="uv" id="uv">
+          <div class="uv-label">UV INDEX</div>
+          <div class="uv-value"><span id="uvValue">--</span><span class="uv-band" id="uvBand"></span></div>
+        </div>
+      </div>
+
+      <div class="wx-error" id="wxError" hidden></div>
+    </section>
+
+    <!-- 24h rain timeline -->
+    <section class="rain" id="rain">
+      <div class="rain-head">
+        <span class="rain-title">RAIN · NEXT 24H</span>
+        <span class="rain-legend"><span id="rainPeak">—</span></span>
+      </div>
+      <div class="rain-bars" id="rainBars"></div>
+      <div class="rain-axis" id="rainAxis"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
