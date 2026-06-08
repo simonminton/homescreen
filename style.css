@@ -185,18 +185,6 @@ body {
   font-variant-numeric: tabular-nums;
   font-optical-sizing: auto;
   text-shadow: 0 0 60px var(--orb-glow), 0 2px 30px rgba(0, 0, 0, 0.35);
-  display: inline-flex;
-  align-items: flex-start;
-}
-.time .secs {
-  font-size: 0.26em;
-  font-family: var(--font-mono);
-  font-weight: 300;
-  letter-spacing: 0.05em;
-  margin-left: 0.35em;
-  margin-top: 0.55em;
-  color: var(--ink-soft);
-  font-variant-numeric: tabular-nums;
 }
 
 .date {
@@ -248,10 +236,12 @@ body {
   font-size: clamp(1.1rem, 2.6vw, 1.55rem);
   color: var(--ink);
 }
-.hilo { display: flex; gap: 1.1em; font-size: 0.82rem; letter-spacing: 0.08em; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
-.hilo .caret { font-size: 0.7em; margin-right: 0.35em; }
+.hilo { display: flex; gap: 1.3em; font-size: 1.02rem; letter-spacing: 0.04em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.hilo .hi, .hilo .lo { display: inline-flex; align-items: baseline; gap: 0.45em; }
+.hilo .caret { font-size: 0.78em; }
 .hilo .hi .caret { color: #f0a868; }
 .hilo .lo .caret { color: #7fb2e8; }
+.hilo .lbl { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.18em; color: var(--ink-faint); }
 
 .uv {
   border-left: 1px solid var(--ink-line);

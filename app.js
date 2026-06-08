@@ -125,7 +125,7 @@ function skyPalette(phase, condition) {
 
 const el = (id) => document.getElementById(id);
 const dom = {
-  time: el("time"), secs: el("secs"), date: el("date"),
+  time: el("time"), date: el("date"),
   locName: el("locName"), location: el("location"),
   worldClocks: el("worldClocks"),
   temp: el("temp"), tempC: el("tempC"), tempF: el("tempF"),
@@ -146,7 +146,6 @@ const fmtTime = (zone) =>
   new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: zone,
   });
-const fmtSecs = new Intl.DateTimeFormat("en-GB", { second: "2-digit" });
 const fmtDate = new Intl.DateTimeFormat("en-GB", {
   weekday: "long", day: "numeric", month: "long", year: "numeric",
 });
@@ -163,8 +162,7 @@ const wclockNodes = [...dom.worldClocks.querySelectorAll(".wc-time")];
 function tickClock() {
   const now = new Date();
   const hhmm = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
-  dom.time.firstChild.textContent = hhmm;
-  dom.secs.textContent = fmtSecs.format(now);
+  dom.time.textContent = hhmm;
   dom.date.textContent = fmtDate.format(now);
   cityFormatters.forEach((c, i) => { wclockNodes[i].textContent = c.fmt.format(now); });
 }
