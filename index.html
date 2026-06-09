@@ -10,12 +10,30 @@
     href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=IBM+Plex+Mono:wght@300;400;500&display=swap"
     rel="stylesheet"
   />
-  <link rel="stylesheet" href="style.css" />
+  <meta name="theme-color" content="#0a0e27" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='34' fill='%23ffd98a'/></svg>" />
+  <!-- Bump ?v= on style.css and app.js together when deploying changes -->
+  <link rel="stylesheet" href="style.css?v=2" />
 </head>
 <body>
   <!-- Atmospheric layers -->
   <div class="sky" id="sky"></div>
-  <div class="orb" id="orb"></div>
+  <div class="orb" id="orb">
+    <div class="orb-glow"></div>
+    <div class="sun-layer" id="sunLayer">
+      <div class="sun-rays"></div>
+      <div class="sun-core"></div>
+    </div>
+    <div class="moon-layer" id="moonLayer"></div>
+  </div>
+  <div class="clouds" id="clouds" aria-hidden="true">
+    <div class="cloud c1"></div>
+    <div class="cloud c2"></div>
+    <div class="cloud c3"></div>
+    <div class="cloud c4"></div>
+    <div class="cloud c5"></div>
+    <div class="cloud c6"></div>
+  </div>
   <canvas class="particles" id="particles"></canvas>
   <div class="condition-veil" id="veil"></div>
   <div class="grain"></div>
@@ -57,6 +75,14 @@
           <div class="uv-label">UV INDEX</div>
           <div class="uv-value"><span id="uvValue">--</span><span class="uv-band" id="uvBand"></span></div>
         </div>
+        <div class="uv moon-stat" id="moonStat" hidden>
+          <div class="uv-label">MOON</div>
+          <div class="moon-stat-value">
+            <span class="moon-mini" id="moonIcon"></span>
+            <span class="moon-name" id="moonName">—</span>
+            <span class="uv-band moon-illum" id="moonIllum"></span>
+          </div>
+        </div>
       </div>
 
       <div class="wx-error" id="wxError" hidden></div>
@@ -92,6 +118,6 @@
     <div class="week-panel" id="weekPanel"></div>
   </section>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>

@@ -52,6 +52,61 @@ function secondaryCities(tz) {
   ];
 }
 
+// Moon phase as a fraction of the synodic month: 0 = new, 0.5 = full.
+const SYNODIC = 29.53058867;
+function moonPhaseFrac(date) {
+  const ref = Date.UTC(2000, 0, 6, 18, 14); // known new moon
+  const days = (date.getTime() - ref) / 86400000;
+  const p = (days % SYNODIC) / SYNODIC;
+  return p < 0 ? p + 1 : p;
+}
+
+function moonInfo(p) {
+  const illum = Math.round(((1 - Math.cos(2 * Math.PI * p)) / 2) * 100);
+  const names = ["New Moon", "Waxing Crescent", "First Quarter", "Waxing Gibbous",
+                 "Full Moon", "Waning Gibbous", "Last Quarter", "Waning Crescent"];
+  return { name: names[Math.round(p * 8) % 8], illum };
+}
+
+// Phase-accurate moon as inline SVG: lit shape bounded by the limb and the
+// terminator ellipse (rx = R·|cos 2πp|), plus earthshine disc and craters.
+// uid keeps gradient/clip ids unique when the SVG appears twice on the page.
+function moonSVG(p, uid) {
+  const C = 50, R = 46;
+  const t = Math.cos(2 * Math.PI * p);
+  const rx = (Math.abs(t) * R).toFixed(2);
+  let litPath = "";
+  if (Math.min(p, 1 - p) < 0.015) litPath = ""; // new — earthshine only
+  else if (Math.abs(p - 0.5) < 0.015)
+    litPath = `M ${C} ${C - R} A ${R} ${R} 0 1 1 ${C} ${C + R} A ${R} ${R} 0 1 1 ${C} ${C - R} Z`;
+  else if (p < 0.5) // waxing: lit on the right
+    litPath = `M ${C} ${C - R} A ${R} ${R} 0 0 1 ${C} ${C + R} A ${rx} ${R} 0 0 ${t > 0 ? 0 : 1} ${C} ${C - R} Z`;
+  else // waning: lit on the left
+    litPath = `M ${C} ${C - R} A ${R} ${R} 0 0 0 ${C} ${C + R} A ${rx} ${R} 0 0 ${t > 0 ? 1 : 0} ${C} ${C - R} Z`;
+
+  const lit = litPath ? `<path d="${litPath}" fill="url(#mlit-${uid})"/>` : "";
+  const craters = litPath
+    ? `<defs><clipPath id="mclip-${uid}"><path d="${litPath}"/></clipPath></defs>
+       <g clip-path="url(#mclip-${uid})" fill="rgba(125,140,175,0.28)">
+         <circle cx="36" cy="40" r="7"/><circle cx="58" cy="60" r="5"/>
+         <circle cx="52" cy="28" r="3.5"/><circle cx="42" cy="64" r="4.5"/>
+         <circle cx="66" cy="40" r="3"/><circle cx="30" cy="55" r="3.5"/>
+       </g>`
+    : "";
+  return `<svg viewBox="0 0 100 100" aria-hidden="true">
+    <defs>
+      <radialGradient id="mlit-${uid}" cx="42%" cy="38%" r="78%">
+        <stop offset="0%" stop-color="#f6f8ff"/>
+        <stop offset="55%" stop-color="#dde6f8"/>
+        <stop offset="100%" stop-color="#bfcce8"/>
+      </radialGradient>
+    </defs>
+    <circle cx="${C}" cy="${C}" r="${R}" fill="rgba(175,190,220,0.12)"/>
+    ${lit}
+    ${craters}
+  </svg>`;
+}
+
 // Time-of-day phase from current time relative to sunrise/sunset Date objects.
 // Returns one of: night | dawn | day | golden | dusk.
 function timeOfDayPhase(now, sunrise, sunset) {
@@ -131,6 +186,8 @@ const dom = {
   temp: el("temp"), tempC: el("tempC"), tempF: el("tempF"),
   condition: el("condition"), tempHi: el("tempHi"), tempLo: el("tempLo"),
   wxIcon: el("wxIcon"), uv: el("uv"), uvValue: el("uvValue"), uvBand: el("uvBand"),
+  moonStat: el("moonStat"), moonIcon: el("moonIcon"), moonName: el("moonName"), moonIllum: el("moonIllum"),
+  sunLayer: el("sunLayer"), moonLayer: el("moonLayer"), clouds: el("clouds"),
   wxError: el("wxError"),
   rainBars: el("rainBars"), rainAxis: el("rainAxis"), rainPeak: el("rainPeak"),
   uvBars: el("uvBars"), uvAxis: el("uvAxis"), uvPeak: el("uvPeak"),
@@ -166,6 +223,7 @@ function tickClock() {
   const hhmm = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
   dom.time.textContent = hhmm;
   dom.date.textContent = fmtDate.format(now);
+  document.title = hhmm + " — Homescreen";
   cityFormatters.forEach((c, i) => { wclockNodes[i].textContent = c.fmt.format(now); });
 }
 
@@ -264,20 +322,43 @@ function updateSky(now = new Date()) {
   root.setProperty("--orb-y", arc.y.toFixed(2) + "%");
 
   if (arc.isDay) {
-    const high = [255, 250, 235], horizon = [255, 176, 116];
-    const col = mix(horizon, high, arc.alt);
-    root.setProperty("--orb-color", `rgba(${col[0] | 0},${col[1] | 0},${col[2] | 0},0.95)`);
-    const warmGlow = Math.round(120 - arc.alt * 40); // warmer, redder glow low in the sky
-    root.setProperty("--orb-glow", `rgba(255,${170 + (arc.alt * 50) | 0},${warmGlow},${(0.34 - arc.alt * 0.06).toFixed(2)})`);
-    root.setProperty("--orb-size", "150px");
+    dom.sunLayer.style.opacity = "1";
+    dom.moonLayer.style.opacity = "0";
+    root.setProperty("--orb-size", "170px");
+    // Hotter and whiter at altitude; orange and dimmer at the horizon.
+    const w = mix([255, 150, 80], [255, 242, 214], Math.min(1, arc.alt * 1.7));
+    root.setProperty("--sun-warm", `rgba(${w[0] | 0},${w[1] | 0},${w[2] | 0},0.92)`);
+    const g = mix([255, 140, 70], [255, 226, 170], Math.min(1, arc.alt * 1.7));
+    root.setProperty("--orb-glow", `rgba(${g[0] | 0},${g[1] | 0},${g[2] | 0},${(0.36 - arc.alt * 0.1).toFixed(2)})`);
   } else {
-    root.setProperty("--orb-color", "rgba(232,238,255,0.92)");
-    root.setProperty("--orb-glow", "rgba(180,200,255,0.20)");
-    root.setProperty("--orb-size", "110px");
+    dom.sunLayer.style.opacity = "0";
+    dom.moonLayer.style.opacity = "1";
+    root.setProperty("--orb-size", "120px");
+    root.setProperty("--orb-glow", "rgba(185,205,255,0.18)");
+    const p = moonPhaseFrac(now);
+    const key = Math.round(p * 200); // redraw only when the phase visibly moves
+    if (key !== moonKeys.sky) { moonKeys.sky = key; dom.moonLayer.innerHTML = moonSVG(p, "sky"); }
+  }
+
+  // The MOON stat replaces the UV stat after dark (UV is always 0 at night).
+  dom.uv.hidden = !arc.isDay;
+  dom.moonStat.hidden = arc.isDay;
+  if (!arc.isDay) {
+    const p = moonPhaseFrac(now);
+    const info = moonInfo(p);
+    dom.moonName.textContent = info.name;
+    dom.moonIllum.textContent = info.illum + "%";
+    const key = Math.round(p * 200);
+    if (key !== moonKeys.mini) { moonKeys.mini = key; dom.moonIcon.innerHTML = moonSVG(p, "mini"); }
   }
 
   const hideOrb = condition === "cloudy" || condition === "rain" || condition === "storm" || condition === "fog";
   dom.orb.style.opacity = hideOrb ? "0" : "0.95";
+
+  // Drifting clouds, tinted and weighted by condition.
+  const look = CLOUD_LOOKS[condition];
+  dom.clouds.style.opacity = look ? look.opacity : "0";
+  if (look) root.setProperty("--cloud-tint", look.tint);
 
   // Veil for hazy / stormy moods.
   let veil = "transparent";
@@ -288,6 +369,16 @@ function updateSky(now = new Date()) {
   startParticles(phase, condition, arc.isDay);
 }
 
+const moonKeys = { sky: -1, mini: -1 };
+
+const CLOUD_LOOKS = {
+  partly: { tint: "rgba(255,255,255,0.55)", opacity: "0.55" },
+  cloudy: { tint: "rgba(222,226,234,0.68)", opacity: "0.9" },
+  rain:   { tint: "rgba(148,156,170,0.62)", opacity: "0.85" },
+  storm:  { tint: "rgba(92,98,114,0.68)",  opacity: "0.9" },
+  snow:   { tint: "rgba(232,236,244,0.6)", opacity: "0.75" },
+};
+
 /* ---------------------------------------------------------------------------
    Canvas particles: stars (clear night), rain, snow
    ------------------------------------------------------------------------- */
@@ -296,6 +387,7 @@ const canvas = el("particles");
 const ctx = canvas.getContext("2d");
 let particles = [];
 let particleMode = "none";
+let meteor = null;
 let rafId = null;
 let dpr = Math.min(window.devicePixelRatio || 1, 2);
 
@@ -341,6 +433,23 @@ function drawParticles() {
       ctx.fillStyle = `rgba(255,255,255,${Math.max(0, a)})`;
       ctx.fill();
     }
+    // The occasional shooting star (~every 15-30s)
+    if (!meteor && Math.random() < 0.0012)
+      meteor = { x: rand(W * 0.1, W * 0.7), y: rand(H * 0.05, H * 0.3), vx: rand(7, 11), vy: rand(2.5, 4.5), life: 1 };
+    if (meteor) {
+      const m = meteor;
+      const grad = ctx.createLinearGradient(m.x, m.y, m.x - m.vx * 10, m.y - m.vy * 10);
+      grad.addColorStop(0, `rgba(255,255,255,${(0.85 * m.life).toFixed(2)})`);
+      grad.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(m.x, m.y);
+      ctx.lineTo(m.x - m.vx * 10, m.y - m.vy * 10);
+      ctx.stroke();
+      m.x += m.vx; m.y += m.vy; m.life -= 0.018;
+      if (m.life <= 0 || m.x > W + 80) meteor = null;
+    }
   } else if (particleMode === "rain") {
     ctx.strokeStyle = "rgba(174,206,240,0.5)";
     for (const p of particles) {
@@ -375,6 +484,7 @@ function startParticles(phase, condition, isDay) {
 
   if (mode === particleMode) return;
   particleMode = mode;
+  meteor = null;
   if (rafId) cancelAnimationFrame(rafId);
   ctx.clearRect(0, 0, innerWidth, innerHeight);
   if (mode === "none") { rafId = null; return; }
@@ -634,12 +744,14 @@ function showWeatherError() {
    ------------------------------------------------------------------------- */
 
 let coords = null;
+let lastWeatherAt = 0;
 
 async function loadWeather() {
   if (!coords) return;
   try {
     const data = await fetchWeather(coords.lat, coords.lon);
     renderWeather(data);
+    lastWeatherAt = Date.now();
   } catch (e) {
     console.error("[homescreen] weather fetch failed:", e);
     showWeatherError();
@@ -677,6 +789,15 @@ async function init() {
 
   // Always open at the top (the clock), not wherever the page was last left.
   if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+
+  // When the tab wakes from the background, snap the clock/sky forward and
+  // refetch weather if it has gone stale.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    tickClock();
+    updateSky();
+    if (Date.now() - lastWeatherAt > 10 * 60 * 1000) loadWeather();
+  });
 
   // Scroll hint glides to the forecast without leaving a #hash in the URL.
   dom.scrollHint.addEventListener("click", (e) => {
