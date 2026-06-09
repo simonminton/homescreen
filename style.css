@@ -482,16 +482,62 @@ body {
   overflow: hidden;
 }
 
+.day-wrap { border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.day-wrap:last-child { border-bottom: none; }
+
 .day {
   display: grid;
-  grid-template-columns: 1.1fr 46px 1.4fr 0.9fr 1.1fr 2.4fr;
+  grid-template-columns: 1.1fr 46px 1.4fr 0.9fr 1.1fr 2.4fr 16px;
   align-items: center;
   gap: clamp(0.6rem, 1.6vw, 1.5rem);
   padding: clamp(0.7rem, 1.7vh, 1.1rem) clamp(1rem, 2.4vw, 1.9rem);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.3s var(--ease);
 }
-.day:last-child { border-bottom: none; }
+.day:hover { background: rgba(255, 255, 255, 0.05); }
 .day.today { background: rgba(255, 255, 255, 0.06); }
+
+.d-chev {
+  justify-self: end;
+  color: var(--ink-faint);
+  font-size: 1.05rem;
+  line-height: 1;
+  transition: transform 0.4s var(--ease), color 0.4s var(--ease);
+}
+.day-wrap.open .d-chev { transform: rotate(90deg); color: var(--ink-soft); }
+
+/* Expanding detail drawer */
+.drawer {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 500ms var(--ease);
+}
+.day-wrap.open .drawer { grid-template-rows: 1fr; }
+.drawer-inner { overflow: hidden; min-height: 0; }
+
+.drawer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.8em;
+  padding: 0.9rem clamp(1rem, 2.4vw, 1.9rem) 0.1rem;
+  font-size: 0.64rem;
+  letter-spacing: 0.18em;
+  color: var(--ink-faint);
+}
+.drawer-meta b { color: var(--ink); font-weight: 500; letter-spacing: 0.08em; }
+
+.drawer-charts {
+  display: flex;
+  gap: clamp(1.4rem, 3vw, 2.6rem);
+  padding: 0.9rem clamp(1rem, 2.4vw, 1.9rem) 1.3rem;
+}
+.drawer-charts .chart-bars { height: 52px; }
 
 .d-name { display: flex; flex-direction: column; gap: 0.15em; }
 .d-day { font-size: 0.95rem; color: var(--ink); }
@@ -539,13 +585,14 @@ body {
 
 @media (max-width: 720px) {
   .day {
-    grid-template-columns: 1.2fr 30px 0.9fr 0.8fr 1.9fr;
+    grid-template-columns: 1.2fr 30px 0.9fr 0.8fr 1.9fr 12px;
     gap: 0.6rem;
     padding: 0.8rem 1rem;
   }
   .d-cond { display: none; }
   .d-uvlabel { display: none; }
   .d-icon { width: 26px; height: 26px; }
+  .drawer-charts { flex-direction: column; gap: 1.1rem; }
 }
 
 @media (max-width: 560px) {

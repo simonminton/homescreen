@@ -502,47 +502,65 @@ addEventListener("resize", () => {
    ------------------------------------------------------------------------- */
 
 const pad = (n) => String(n).padStart(2, "0");
+const localDateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-// Today's 24 hourly entries (00:00–23:00), flagged with now / past.
-function todaySlice(times, values) {
+// The 24 hourly entries for one calendar day ("YYYY-MM-DD"), each flagged
+// with now / past when that day is today.
+function daySlice(times, values, dateStr) {
   const now = new Date();
-  const y = now.getFullYear(), m = now.getMonth(), d = now.getDate(), hr = now.getHours();
+  const isToday = dateStr === localDateStr(now);
   const out = [];
   for (let i = 0; i < times.length; i++) {
+    if (!times[i].startsWith(dateStr)) continue;
     const t = new Date(times[i]);
-    if (t.getFullYear() === y && t.getMonth() === m && t.getDate() === d)
-      out.push({ t, v: values[i] ?? 0, now: t.getHours() === hr, past: t.getHours() < hr });
+    out.push({
+      t, v: values[i] ?? 0,
+      now: isToday && t.getHours() === now.getHours(),
+      past: isToday && t.getHours() < now.getHours(),
+    });
   }
   return out;
 }
 
-// Hour labels every 6 hours plus a "now" marker, one cell per bar.
-function renderAxis(axisEl, slice) {
-  axisEl.innerHTML = "";
-  slice.forEach((h) => {
-    const ax = document.createElement("span");
+// Build one hourly chart (bars + axis + peak legend) as HTML strings.
+// kind: "rain" (percent) | "uv" (index, band-coloured).
+function chartHTML(slice, kind, delayBase = 0) {
+  const UV_SCALE = 11;
+  let bars = "", axis = "", peak = 0;
+  slice.forEach((h, i) => {
+    let cls = "bar", style = "", title = "";
+    if (kind === "rain") {
+      peak = Math.max(peak, h.v);
+      cls += " rbar" + (h.v < 5 ? " dry" : "");
+      style = `height:${Math.max(2, h.v)}%`;
+      title = `${pad(h.t.getHours())}:00 — ${h.v}%`;
+    } else {
+      const uv = Math.max(0, h.v);
+      peak = Math.max(peak, uv);
+      cls += " uvbar" + (uv < 0.5 ? " zero" : "");
+      style = `height:${Math.max(2, Math.min(100, (uv / UV_SCALE) * 100))}%`;
+      if (uv >= 0.5) style += `;background:${uvBarColor(uv)}`;
+      title = `${pad(h.t.getHours())}:00 — UV ${Math.round(uv * 10) / 10}`;
+    }
+    if (h.now) cls += " now";
+    if (h.past) cls += " past";
+    style += `;animation-delay:${delayBase + i * 14}ms`;
+    bars += `<div class="${cls}" style="${style}" title="${title}"></div>`;
     const hr = h.t.getHours();
-    if (h.now) { ax.className = "tick now"; ax.textContent = "now"; }
-    else if (hr % 6 === 0) { ax.className = "tick"; ax.textContent = pad(hr); }
-    axisEl.appendChild(ax);
+    axis += h.now ? `<span class="tick now">now</span>`
+      : hr % 6 === 0 ? `<span class="tick">${pad(hr)}</span>` : "<span></span>";
   });
+  const peakLabel = kind === "rain"
+    ? (peak > 0 ? `peak ${peak}%` : "dry")
+    : (peak > 0 ? `peak ${Math.round(peak * 10) / 10}` : "none");
+  return { bars, axis, peakLabel };
 }
 
 function renderRain(times, probs) {
-  const slice = todaySlice(times, probs);
-  dom.rainBars.innerHTML = "";
-  let peak = 0;
-  slice.forEach((h, i) => {
-    peak = Math.max(peak, h.v);
-    const bar = document.createElement("div");
-    bar.className = "bar rbar" + (h.now ? " now" : "") + (h.past ? " past" : "") + (h.v < 5 ? " dry" : "");
-    bar.style.height = Math.max(2, h.v) + "%";
-    bar.style.animationDelay = 760 + i * 16 + "ms";
-    bar.title = `${pad(h.t.getHours())}:00 — ${h.v}%`;
-    dom.rainBars.appendChild(bar);
-  });
-  renderAxis(dom.rainAxis, slice);
-  dom.rainPeak.textContent = peak > 0 ? `peak ${peak}%` : "dry";
+  const c = chartHTML(daySlice(times, probs, localDateStr(new Date())), "rain", 760);
+  dom.rainBars.innerHTML = c.bars;
+  dom.rainAxis.innerHTML = c.axis;
+  dom.rainPeak.textContent = c.peakLabel;
 }
 
 // Vivid band colour for UV bars (distinct from the translucent badge tints).
@@ -556,23 +574,10 @@ function uvBarColor(uv) {
 
 function renderUV(times, uvs) {
   if (!uvs) { dom.uvBars.innerHTML = ""; dom.uvAxis.innerHTML = ""; dom.uvPeak.textContent = "—"; return; }
-  const slice = todaySlice(times, uvs);
-  dom.uvBars.innerHTML = "";
-  const SCALE = 11; // top of the colour ramp; extreme UV clamps to full height
-  let peak = 0;
-  slice.forEach((h, i) => {
-    const uv = Math.max(0, h.v);
-    peak = Math.max(peak, uv);
-    const bar = document.createElement("div");
-    bar.className = "bar uvbar" + (h.now ? " now" : "") + (h.past ? " past" : "") + (uv < 0.5 ? " zero" : "");
-    bar.style.height = Math.max(2, Math.min(100, (uv / SCALE) * 100)) + "%";
-    if (uv >= 0.5) bar.style.background = uvBarColor(uv);
-    bar.style.animationDelay = 760 + i * 16 + "ms";
-    bar.title = `${pad(h.t.getHours())}:00 — UV ${Math.round(uv * 10) / 10}`;
-    dom.uvBars.appendChild(bar);
-  });
-  renderAxis(dom.uvAxis, slice);
-  dom.uvPeak.textContent = peak > 0 ? `peak ${Math.round(peak * 10) / 10}` : "none";
+  const c = chartHTML(daySlice(times, uvs, localDateStr(new Date())), "uv", 760);
+  dom.uvBars.innerHTML = c.bars;
+  dom.uvAxis.innerHTML = c.axis;
+  dom.uvPeak.textContent = c.peakLabel;
 }
 
 /* ---------------------------------------------------------------------------
@@ -581,6 +586,39 @@ function renderUV(times, uvs) {
 
 const fmtWeekday = new Intl.DateTimeFormat("en-GB", { weekday: "short" });
 const fmtDayMonth = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+
+let weekData = null;  // last fetched { daily, hourly }, for building day drawers
+let openDay = null;   // index of the expanded forecast day, if any
+
+// Expanded detail for one forecast day: sun times, temps in C and F, and
+// hourly UV + rain charts for that day.
+function drawerHTML(i) {
+  const d = weekData.daily, h = weekData.hourly;
+  const dateStr = d.time[i];
+  const uv = chartHTML(daySlice(h.time, h.uv_index || [], dateStr), "uv");
+  const rn = chartHTML(daySlice(h.time, h.precipitation_probability || [], dateStr), "rain");
+  const sr = new Date(d.sunrise[i]), ss = new Date(d.sunset[i]);
+  const hi = d.temperature_2m_max[i], lo = d.temperature_2m_min[i];
+  return `
+    <div class="drawer-meta">
+      <span>SUNRISE <b>${pad(sr.getHours())}:${pad(sr.getMinutes())}</b></span>
+      <span>SUNSET <b>${pad(ss.getHours())}:${pad(ss.getMinutes())}</b></span>
+      <span>HIGH <b>${round(hi)}°C / ${round(cToF(hi))}°F</b></span>
+      <span>LOW <b>${round(lo)}°C / ${round(cToF(lo))}°F</b></span>
+    </div>
+    <div class="drawer-charts">
+      <div class="chart">
+        <div class="chart-head"><span class="chart-title">UV INDEX</span><span class="chart-legend">${uv.peakLabel}</span></div>
+        <div class="chart-bars">${uv.bars}</div>
+        <div class="chart-axis">${uv.axis}</div>
+      </div>
+      <div class="chart">
+        <div class="chart-head"><span class="chart-title">RAIN</span><span class="chart-legend">${rn.peakLabel}</span></div>
+        <div class="chart-bars">${rn.bars}</div>
+        <div class="chart-axis">${rn.axis}</div>
+      </div>
+    </div>`;
+}
 
 function renderWeek(daily) {
   const panel = dom.weekPanel;
@@ -607,20 +645,30 @@ function renderWeek(daily) {
     const width = ((hi - lo) / span) * 100;
     const dayName = i === 0 ? "Today" : fmtWeekday.format(date);
 
-    html += `<div class="day${i === 0 ? " today" : ""}">
-      <div class="d-name"><span class="d-day">${dayName}</span><span class="d-date">${fmtDayMonth.format(date)}</span></div>
-      <div class="d-icon">${pickIcon(cond.key, true)}</div>
-      <div class="d-cond">${cond.label}</div>
-      <div class="d-rain">${rain > 0 ? `<span class="rdrop">♦</span>${rain}%` : '<span class="muted">—</span>'}</div>
-      <div class="d-uv"><span class="uv-chip" style="background:${band.color}">${uv == null ? "—" : Math.round(uv)}</span><span class="d-uvlabel">${band.label}</span></div>
-      <div class="d-range" title="${round(cToF(lo))}°F – ${round(cToF(hi))}°F">
-        <span class="t-lo">${round(lo)}°</span>
-        <span class="range-track"><span class="range-fill" style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%"></span></span>
-        <span class="t-hi">${round(hi)}°</span>
-      </div>
+    html += `<div class="day-wrap${openDay === i ? " open" : ""}" data-day="${i}">
+      <button class="day${i === 0 ? " today" : ""}" aria-expanded="${openDay === i}">
+        <div class="d-name"><span class="d-day">${dayName}</span><span class="d-date">${fmtDayMonth.format(date)}</span></div>
+        <div class="d-icon">${pickIcon(cond.key, true)}</div>
+        <div class="d-cond">${cond.label}</div>
+        <div class="d-rain">${rain > 0 ? `<span class="rdrop">♦</span>${rain}%` : '<span class="muted">—</span>'}</div>
+        <div class="d-uv"><span class="uv-chip" style="background:${band.color}">${uv == null ? "—" : Math.round(uv)}</span><span class="d-uvlabel">${band.label}</span></div>
+        <div class="d-range" title="${round(cToF(lo))}°F – ${round(cToF(hi))}°F">
+          <span class="t-lo">${round(lo)}°</span>
+          <span class="range-track"><span class="range-fill" style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%"></span></span>
+          <span class="t-hi">${round(hi)}°</span>
+        </div>
+        <span class="d-chev" aria-hidden="true">›</span>
+      </button>
+      <div class="drawer"><div class="drawer-inner" data-built="0"></div></div>
     </div>`;
   }
   panel.innerHTML = html;
+
+  // Re-fill the open drawer after a refresh so it survives re-renders.
+  if (openDay != null && openDay < n) {
+    const inner = panel.querySelector(`.day-wrap[data-day="${openDay}"] .drawer-inner`);
+    if (inner) { inner.innerHTML = drawerHTML(openDay); inner.dataset.built = "1"; }
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -720,6 +768,7 @@ function renderWeather(data) {
 
   renderRain(data.hourly.time, data.hourly.precipitation_probability);
   renderUV(data.hourly.time, data.hourly.uv_index);
+  weekData = { daily: data.daily, hourly: data.hourly };
   renderWeek(data.daily);
 
   // Background reflects the real sky; the orb arc reads sunrise/sunset.
@@ -809,6 +858,26 @@ async function init() {
   addEventListener("scroll", () => {
     dom.scrollHint.classList.toggle("gone", window.scrollY > 40);
   }, { passive: true });
+
+  // Forecast day rows toggle a detail drawer (one open at a time).
+  dom.weekPanel.addEventListener("click", (e) => {
+    const wrap = e.target.closest(".day-wrap");
+    if (!wrap || !weekData) return;
+    const i = +wrap.dataset.day;
+    const wasOpen = wrap.classList.contains("open");
+    dom.weekPanel.querySelectorAll(".day-wrap.open").forEach((w) => {
+      w.classList.remove("open");
+      w.querySelector(".day").setAttribute("aria-expanded", "false");
+    });
+    openDay = null;
+    if (!wasOpen) {
+      const inner = wrap.querySelector(".drawer-inner");
+      if (inner.dataset.built !== "1") { inner.innerHTML = drawerHTML(i); inner.dataset.built = "1"; }
+      wrap.classList.add("open");
+      wrap.querySelector(".day").setAttribute("aria-expanded", "true");
+      openDay = i;
+    }
+  });
 
   // Opt-in precise location (triggers the GPS prompt only on click).
   dom.preciseBtn.addEventListener("click", async () => {
