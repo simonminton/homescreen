@@ -163,6 +163,18 @@ body {
   pointer-events: none;
 }
 
+/* Thunderstorm lightning — a brief white flash overlay (JS toggles .flash) */
+.lightning {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(226,236,255,0.9), rgba(200,216,255,0.35) 40%, transparent 70%);
+}
+.lightning.flash { opacity: 1; transition: opacity 60ms ease-out; }
+
 /* Fine film grain for depth */
 .grain {
   position: fixed;
@@ -204,16 +216,17 @@ body {
 }
 
 /* Staggered entrance */
-.topbar, .hero, .weather, .charts {
+.topbar, .hero, .weather, .sun-panel, .charts {
   opacity: 0;
   transform: translateY(14px);
   filter: blur(8px);
   animation: rise 1100ms var(--ease) forwards;
 }
-.topbar  { animation-delay: 120ms; }
-.hero    { animation-delay: 300ms; }
-.weather { animation-delay: 560ms; }
-.charts  { animation-delay: 760ms; }
+.topbar    { animation-delay: 120ms; }
+.hero      { animation-delay: 300ms; }
+.weather   { animation-delay: 560ms; }
+.sun-panel { animation-delay: 700ms; }
+.charts    { animation-delay: 820ms; }
 
 @keyframes rise {
   to { opacity: 1; transform: translateY(0); filter: blur(0); }
@@ -369,6 +382,52 @@ body {
 .moon-mini svg { width: 100%; height: 100%; }
 .moon-name { font-size: 0.95rem; }
 .moon-illum { background: rgba(190, 205, 240, 0.18); }
+
+/* Air quality reuses the .uv block; match the big numeric readout. */
+.uv-value #aqiValue { font-size: 1.8rem; font-weight: 400; font-variant-numeric: tabular-nums; }
+.pollen-stat .uv-value { min-height: 1.9rem; align-items: center; }
+
+/* Location carousel arrows + secondary "local" clock */
+.loc-nav {
+  background: none; border: 0; padding: 0 0.1em;
+  color: var(--ink-faint); cursor: pointer; line-height: 1;
+  font-family: var(--font-mono); font-size: 1rem;
+  transition: color 0.3s var(--ease);
+}
+.loc-nav:hover { color: var(--ink); }
+.loc-time { color: var(--ink-faint); font-size: 0.64rem; letter-spacing: 0.14em; font-variant-numeric: tabular-nums; }
+
+/* Rain nowcast line + extra current-condition details */
+.wx-nowcast {
+  margin-top: 0.9rem;
+  font-family: var(--font-display); font-style: italic;
+  font-size: clamp(0.95rem, 2.2vw, 1.2rem);
+  color: #bcd3ee; letter-spacing: 0.02em;
+}
+.wx-details {
+  margin-top: 0.9rem;
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: clamp(0.9rem, 2.6vw, 1.8rem);
+  font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+.wx-details .wd-l { color: var(--ink-faint); text-transform: uppercase; font-size: 0.58rem; letter-spacing: 0.18em; margin-right: 0.45em; }
+.wx-details .wd-arrow { display: inline-block; font-size: 0.9em; }
+
+/* Sun & day-length panel */
+.sun-panel {
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: clamp(1rem, 3.2vw, 2.6rem);
+  width: min(900px, 92vw);
+  margin: 1.5rem auto 0;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--ink-line);
+}
+.sun-item { display: flex; flex-direction: column; align-items: center; gap: 0.3em; }
+.sun-label { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-faint); }
+.sun-val { font-size: 0.98rem; color: var(--ink); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+.sun-delta { font-family: var(--font-mono); font-size: 0.6rem; color: var(--ink-soft); }
+.sun-next .sun-val { color: #ffd98a; }
 
 .wx-error {
   margin-top: 0.4rem;

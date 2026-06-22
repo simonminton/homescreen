@@ -13,7 +13,7 @@
   <meta name="theme-color" content="#0a0e27" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='34' fill='%23ffd98a'/></svg>" />
   <!-- Bump ?v= on style.css and app.js together when deploying changes -->
-  <link rel="stylesheet" href="style.css?v=4" />
+  <link rel="stylesheet" href="style.css?v=5" />
 </head>
 <body>
   <!-- Atmospheric layers -->
@@ -35,6 +35,7 @@
     <div class="cloud c6"></div>
   </div>
   <canvas class="particles" id="particles"></canvas>
+  <div class="lightning" id="lightning" aria-hidden="true"></div>
   <div class="condition-veil" id="veil"></div>
   <div class="grain"></div>
   <div class="vignette"></div>
@@ -44,8 +45,11 @@
     <header class="topbar">
       <div class="location" id="location">
         <span class="dot" id="locDot"></span>
+        <button class="loc-nav" id="locPrev" type="button" aria-label="Previous location" hidden>‹</button>
         <span id="locName">Locating…</span>
-        <button class="precise-btn" id="preciseBtn" hidden>use precise location</button>
+        <button class="loc-nav" id="locNext" type="button" aria-label="Next location" hidden>›</button>
+        <span class="loc-time" id="locTime" hidden></span>
+        <button class="precise-btn" id="preciseBtn" hidden>update location</button>
       </div>
       <div class="world-clocks" id="worldClocks"></div>
     </header>
@@ -83,9 +87,33 @@
             <span class="uv-band moon-illum" id="moonIllum"></span>
           </div>
         </div>
+        <div class="uv aqi-stat" id="aqiStat" hidden>
+          <div class="uv-label">AIR QUALITY</div>
+          <div class="uv-value"><span id="aqiValue">--</span><span class="uv-band" id="aqiBandEl"></span></div>
+        </div>
+        <div class="uv pollen-stat" id="pollenStat" hidden>
+          <div class="uv-label">POLLEN</div>
+          <div class="uv-value"><span class="uv-band" id="pollenBandEl"></span></div>
+        </div>
       </div>
 
+      <div class="wx-nowcast" id="nowcast" hidden></div>
+      <div class="wx-details" id="wxDetails" hidden></div>
+
       <div class="wx-error" id="wxError" hidden></div>
+    </section>
+
+    <!-- Sun & day length -->
+    <section class="sun-panel" id="sunPanel" hidden>
+      <div class="sun-item sun-next">
+        <span class="sun-label" id="sunNextLabel">—</span><span class="sun-val" id="sunNextVal">—</span>
+      </div>
+      <div class="sun-item"><span class="sun-label">SUNRISE</span><span class="sun-val" id="sunriseVal">—</span></div>
+      <div class="sun-item"><span class="sun-label">SUNSET</span><span class="sun-val" id="sunsetVal">—</span></div>
+      <div class="sun-item">
+        <span class="sun-label">DAYLIGHT</span><span class="sun-val" id="dayLenVal">—</span><span class="sun-delta" id="dayDeltaVal"></span>
+      </div>
+      <div class="sun-item"><span class="sun-label">GOLDEN HOUR</span><span class="sun-val" id="goldenVal">—</span></div>
     </section>
 
     <!-- 24h timelines: UV (left / top) + rain (right / bottom) -->
@@ -118,6 +146,6 @@
     <div class="week-panel" id="weekPanel"></div>
   </section>
 
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

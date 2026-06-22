@@ -42,6 +42,30 @@ function uvBand(uv) {
   return { label: "Extreme", color: "rgba(180,100,200,0.42)" };
 }
 
+// US AQI -> descriptive band + chip colour (matches the UV badge styling).
+function aqiBand(aqi) {
+  if (aqi == null || isNaN(aqi)) return { label: "—", color: "rgba(255,255,255,0.1)" };
+  if (aqi <= 50)  return { label: "Good", color: "rgba(120,200,140,0.34)" };
+  if (aqi <= 100) return { label: "Moderate", color: "rgba(232,200,90,0.34)" };
+  if (aqi <= 150) return { label: "Unhealthy*", color: "rgba(232,150,70,0.38)" };
+  if (aqi <= 200) return { label: "Unhealthy", color: "rgba(225,90,80,0.4)" };
+  if (aqi <= 300) return { label: "Very unhealthy", color: "rgba(180,100,200,0.42)" };
+  return { label: "Hazardous", color: "rgba(160,60,70,0.46)" };
+}
+
+// Peak pollen across types (grains/m³) -> band. Rough, type-agnostic scale.
+function pollenBand(grains) {
+  if (grains == null || isNaN(grains)) return { label: "—", color: "rgba(255,255,255,0.1)" };
+  if (grains < 10)  return { label: "Low", color: "rgba(120,200,140,0.34)" };
+  if (grains < 50)  return { label: "Moderate", color: "rgba(232,200,90,0.34)" };
+  if (grains < 100) return { label: "High", color: "rgba(232,150,70,0.38)" };
+  return { label: "Very high", color: "rgba(225,90,80,0.4)" };
+}
+
+// Compass point from a bearing in degrees (meteorological: direction wind FROM).
+const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+const compass = (deg) => COMPASS[Math.round((deg % 360) / 45) % 8];
+
 // Decide which secondary city clocks to show from the system timezone.
 // Each carries coords so clicking a clock can switch the weather location.
 const LONDON = { city: "London", zone: "Europe/London", lat: 51.5074, lon: -0.1278 };
@@ -174,6 +198,77 @@ function skyPalette(phase, condition) {
   }
 }
 
+// Condition tint amounts, as [target rgb, strength], for the altitude-driven
+// palette (mirrors the discrete skyPalette switch above).
+const CONDITION_TINT = {
+  cloudy: [[86, 92, 104], 0.55], partly: [[110, 120, 135], 0.25],
+  rain: [[44, 52, 66], 0.62], storm: [[26, 30, 42], 0.72],
+  snow: [[150, 158, 172], 0.5], fog: [[150, 152, 158], 0.6],
+};
+
+// Clear-sky palettes as rgb triples, for continuous interpolation by altitude.
+const PHASE_RGB = {};
+for (const k in BASE_PALETTES) PHASE_RGB[k] = BASE_PALETTES[k].map(hexToRgb);
+
+// Continuous sky palette from the sun's true altitude (degrees). Blends between
+// night / twilight / golden / day anchors; twilight leans dawn or dusk.
+function skyPaletteByAltitude(alt, rising, condition) {
+  const twi = rising ? "dawn" : "dusk";
+  const stops = [[-90, "night"], [-10, "night"], [-5, twi], [-1, "golden"], [7, "golden"], [18, "day"], [90, "day"]];
+  let lo = stops[0], hi = stops[stops.length - 1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (alt >= stops[i][0] && alt <= stops[i + 1][0]) { lo = stops[i]; hi = stops[i + 1]; break; }
+  }
+  const span = hi[0] - lo[0];
+  const t = span === 0 ? 0 : (alt - lo[0]) / span;
+  const pa = PHASE_RGB[lo[1]], pb = PHASE_RGB[hi[1]];
+  let pal = [0, 1, 2].map((j) => mix(pa[j], pb[j], t));
+  const tint = CONDITION_TINT[condition];
+  if (tint) pal = pal.map((rgb) => mix(rgb, tint[0], tint[1]));
+  return pal.map(rgbToCss);
+}
+
+/* ---------------------------------------------------------------------------
+   Solar position (NOAA low-precision algorithm)
+   ------------------------------------------------------------------------- */
+
+const deg2rad = (d) => (d * Math.PI) / 180;
+const rad2deg = (r) => (r * 180) / Math.PI;
+
+// Sun altitude in degrees (negative = below horizon) for a Date at lat/lon.
+// Accurate to a fraction of a degree — plenty for driving the sky gradient.
+function sunAltitude(date, lat, lon) {
+  const jd = date.getTime() / 86400000 + 2440587.5;     // Julian date
+  const n = jd - 2451545.0;                              // days since J2000
+  const L = ((280.46 + 0.9856474 * n) % 360 + 360) % 360;
+  const g = deg2rad(((357.528 + 0.9856003 * n) % 360 + 360) % 360);
+  const lambda = deg2rad(L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g));
+  const eps = deg2rad(23.439 - 0.0000004 * n);
+  const decl = Math.asin(Math.sin(eps) * Math.sin(lambda));
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
+  const gmst = ((280.46061837 + 360.98564736629 * n) % 360 + 360) % 360;
+  const H = deg2rad(((gmst + lon) % 360 + 360) % 360) - ra;
+  const latR = deg2rad(lat);
+  const alt = Math.asin(
+    Math.sin(latR) * Math.sin(decl) + Math.cos(latR) * Math.cos(decl) * Math.cos(H)
+  );
+  return rad2deg(alt);
+}
+
+const dayOfYear = (d) =>
+  Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000);
+
+// Daylight length in hours for a date/latitude, from the sunrise hour angle.
+// Used only for the day-length *delta* vs yesterday (today's length itself
+// comes from the exact API sunrise/sunset).
+function dayLengthHours(date, lat) {
+  const decl = deg2rad(-23.44 * Math.cos(deg2rad((360 / 365) * (dayOfYear(date) + 10))));
+  const cosH = -Math.tan(deg2rad(lat)) * Math.tan(decl);
+  if (cosH <= -1) return 24;
+  if (cosH >= 1) return 0;
+  return (2 * rad2deg(Math.acos(cosH))) / 15;
+}
+
 /* ---------------------------------------------------------------------------
    DOM references
    ------------------------------------------------------------------------- */
@@ -182,17 +277,24 @@ const el = (id) => document.getElementById(id);
 const dom = {
   time: el("time"), date: el("date"),
   locName: el("locName"), location: el("location"), preciseBtn: el("preciseBtn"),
+  locPrev: el("locPrev"), locNext: el("locNext"), locTime: el("locTime"),
   worldClocks: el("worldClocks"),
   temp: el("temp"), tempC: el("tempC"), tempF: el("tempF"),
   condition: el("condition"), tempHi: el("tempHi"), tempLo: el("tempLo"),
   wxIcon: el("wxIcon"), uv: el("uv"), uvValue: el("uvValue"), uvBand: el("uvBand"),
   moonStat: el("moonStat"), moonIcon: el("moonIcon"), moonName: el("moonName"), moonIllum: el("moonIllum"),
+  aqiStat: el("aqiStat"), aqiValue: el("aqiValue"), aqiBandEl: el("aqiBandEl"),
+  pollenStat: el("pollenStat"), pollenBandEl: el("pollenBandEl"),
+  nowcast: el("nowcast"), wxDetails: el("wxDetails"),
+  sunPanel: el("sunPanel"), sunNextLabel: el("sunNextLabel"), sunNextVal: el("sunNextVal"),
+  sunriseVal: el("sunriseVal"), sunsetVal: el("sunsetVal"),
+  dayLenVal: el("dayLenVal"), dayDeltaVal: el("dayDeltaVal"), goldenVal: el("goldenVal"),
   sunLayer: el("sunLayer"), moonLayer: el("moonLayer"), clouds: el("clouds"),
   wxError: el("wxError"),
   rainBars: el("rainBars"), rainAxis: el("rainAxis"), rainPeak: el("rainPeak"),
   uvBars: el("uvBars"), uvAxis: el("uvAxis"), uvPeak: el("uvPeak"),
   weekPanel: el("weekPanel"), scrollHint: el("scrollHint"),
-  sky: el("sky"), orb: el("orb"), veil: el("veil"),
+  sky: el("sky"), orb: el("orb"), veil: el("veil"), lightning: el("lightning"),
 };
 
 /* ---------------------------------------------------------------------------
@@ -220,11 +322,12 @@ const wclockNodes = [...dom.worldClocks.querySelectorAll(".wc-time")];
 
 function tickClock() {
   const now = new Date();
-  const hhmm = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
-  dom.time.textContent = hhmm;
+  const t = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
+  dom.time.textContent = t;
   dom.date.textContent = fmtDate.format(now);
-  document.title = hhmm + " — Homescreen";
+  document.title = t + " — Homescreen";
   cityFormatters.forEach((c, i) => { wclockNodes[i].textContent = c.fmt.format(now); });
+  updateLocTime();
 }
 
 /* ---------------------------------------------------------------------------
@@ -310,7 +413,17 @@ const skyState = { condition: "clear", sunrise: null, sunset: null, sunriseNext:
 function updateSky(now = new Date()) {
   const { condition, sunrise, sunset, sunriseNext } = skyState;
   const phase = timeOfDayPhase(now, sunrise, sunset);
-  const [a, b, c] = skyPalette(phase, condition);
+
+  // Prefer a continuous gradient driven by the sun's real altitude when we know
+  // where we are; otherwise fall back to the discrete time-of-day palette.
+  let a, b, c;
+  if (coords && coords.lat != null) {
+    const alt = sunAltitude(now, coords.lat, coords.lon);
+    const rising = sunAltitude(new Date(now.getTime() + 6e5), coords.lat, coords.lon) > alt;
+    [a, b, c] = skyPaletteByAltitude(alt, rising, condition);
+  } else {
+    [a, b, c] = skyPalette(phase, condition);
+  }
   const root = document.documentElement.style;
   root.setProperty("--sky-1", a);
   root.setProperty("--sky-2", b);
@@ -366,10 +479,27 @@ function updateSky(now = new Date()) {
   else if (condition === "storm") veil = "rgba(10,12,22,0.22)";
   root.setProperty("--veil-color", veil);
 
+  setLightning(condition === "storm");
   startParticles(phase, condition, arc.isDay);
 }
 
 const moonKeys = { sky: -1, mini: -1 };
+
+// Occasional lightning flashes while a thunderstorm is the active condition.
+// Respects reduced-motion. A flash is a quick double-blink of a white overlay.
+let lightningTimer = null;
+const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+function setLightning(on) {
+  if (on && !lightningTimer && !reduceMotion) {
+    const blink = (ms) => { dom.lightning.classList.add("flash"); setTimeout(() => dom.lightning.classList.remove("flash"), ms); };
+    const strike = () => { blink(180); if (Math.random() < 0.45) setTimeout(() => blink(120), 230); };
+    lightningTimer = setInterval(() => { if (Math.random() < 0.5) strike(); }, 3800);
+  } else if (!on && lightningTimer) {
+    clearInterval(lightningTimer);
+    lightningTimer = null;
+    dom.lightning.classList.remove("flash");
+  }
+}
 
 const CLOUD_LOOKS = {
   partly: { tint: "rgba(255,255,255,0.55)", opacity: "0.55" },
@@ -725,7 +855,8 @@ async function resolveName(lat, lon) {
 async function fetchWeather(lat, lon) {
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-    `&current=temperature_2m,weather_code,is_day` +
+    `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day,wind_speed_10m,wind_direction_10m,surface_pressure` +
+    `&minutely_15=precipitation` +
     `&daily=weather_code,temperature_2m_max,temperature_2m_min,uv_index_max,precipitation_probability_max,sunrise,sunset` +
     `&hourly=precipitation_probability,uv_index` +
     `&timezone=auto&forecast_days=7`;
@@ -734,11 +865,158 @@ async function fetchWeather(lat, lon) {
   return r.json();
 }
 
+// Air quality + pollen (separate keyless Open-Meteo host). Pollen fields are
+// only populated over Europe; elsewhere they come back null and the UI hides
+// that block. Best-effort: a failure just means no air panel.
+async function fetchAir(lat, lon) {
+  try {
+    const url =
+      `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}` +
+      `&current=us_aqi,european_aqi,pm2_5,` +
+      `alder_pollen,birch_pollen,grass_pollen,mugwort_pollen,olive_pollen,ragweed_pollen` +
+      `&timezone=auto`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
+
 function currentHourIndex(times) {
   const now = new Date();
   const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}T${String(now.getHours()).padStart(2, "0")}:00`;
   const i = times.indexOf(key);
   return i >= 0 ? i : 0;
+}
+
+/* --- Small time/duration formatters for the conditions + sun panels --- */
+const hhmm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+function durHuman(ms) {            // "4h 12m" / "12m" / "5m"
+  const m = Math.max(0, Math.round(ms / 60000));
+  if (m >= 60) { const h = Math.floor(m / 60), r = m % 60; return r ? `${h}h ${r}m` : `${h}h`; }
+  return `${m}m`;
+}
+const durHM = (ms) => { const m = Math.round(ms / 60000); return `${Math.floor(m / 60)}h ${pad(m % 60)}m`; };
+const durMS = (sec) => { const m = Math.floor(sec / 60), s = sec % 60; return m ? `${m}m ${s}s` : `${s}s`; };
+const niceMins = (m) => (m >= 60 ? durHuman(m * 60000) : `${Math.max(5, Math.round(m / 5) * 5)} min`);
+
+// Extra current conditions: feels-like, wind (+direction), humidity, pressure.
+function renderDetails(cur) {
+  const parts = [];
+  if (cur.apparent_temperature != null)
+    parts.push(`<span class="wd"><span class="wd-l">Feels</span> ${round(cur.apparent_temperature)}°</span>`);
+  if (cur.wind_speed_10m != null) {
+    const dir = cur.wind_direction_10m ?? 0;
+    parts.push(`<span class="wd"><span class="wd-l">Wind</span> ${round(cur.wind_speed_10m)} km/h ` +
+      `<span class="wd-arrow" style="transform:rotate(${(dir + 180) % 360}deg)">↑</span> ${compass(dir)}</span>`);
+  }
+  if (cur.relative_humidity_2m != null)
+    parts.push(`<span class="wd"><span class="wd-l">Humidity</span> ${round(cur.relative_humidity_2m)}%</span>`);
+  if (cur.surface_pressure != null)
+    parts.push(`<span class="wd"><span class="wd-l">Pressure</span> ${round(cur.surface_pressure)} hPa</span>`);
+  dom.wxDetails.innerHTML = parts.join("");
+  dom.wxDetails.hidden = parts.length === 0;
+}
+
+// Short-term rain nowcast from the 15-minute precipitation cast.
+function renderNowcast(minutely) {
+  const node = dom.nowcast;
+  if (!minutely || !minutely.time || !minutely.precipitation) { node.hidden = true; return; }
+  const now = Date.now();
+  const times = minutely.time, vals = minutely.precipitation;
+  let i = 0;
+  while (i < times.length && new Date(times[i]).getTime() < now) i++;
+  if (i >= times.length) { node.hidden = true; return; }
+  const WET = 0.1;                       // mm in a 15-min slot = "raining"
+  const horizon = Math.min(times.length, i + 8);   // look ~2h ahead
+  const rainingNow = (vals[i] ?? 0) >= WET || (i > 0 && (vals[i - 1] ?? 0) >= WET);
+  let msg = "", j = i;
+  if (rainingNow) {
+    while (j < horizon && (vals[j] ?? 0) >= WET) j++;
+    if (j < horizon) {
+      const mins = Math.round((new Date(times[j]).getTime() - now) / 60000);
+      msg = mins <= 5 ? "Rain easing soon" : `Rain easing in ~${niceMins(mins)}`;
+    }
+  } else {
+    while (j < horizon && (vals[j] ?? 0) < WET) j++;
+    if (j < horizon) {
+      const mins = Math.round((new Date(times[j]).getTime() - now) / 60000);
+      msg = mins <= 5 ? "Rain starting soon" : `Rain starting in ~${niceMins(mins)}`;
+    }
+  }
+  node.textContent = msg;
+  node.hidden = !msg;
+}
+
+// Air quality (US AQI) + pollen chips. Pollen hides itself outside Europe.
+function renderAir(air) {
+  const c = air && air.current;
+  if (!c) { dom.aqiStat.hidden = true; dom.pollenStat.hidden = true; return; }
+
+  const aqi = c.us_aqi ?? c.european_aqi;
+  if (aqi != null) {
+    const b = aqiBand(aqi);
+    dom.aqiValue.textContent = Math.round(aqi);
+    dom.aqiBandEl.textContent = b.label;
+    dom.aqiBandEl.style.background = b.color;
+    dom.aqiStat.hidden = false;
+  } else dom.aqiStat.hidden = true;
+
+  const grains = ["alder_pollen", "birch_pollen", "grass_pollen", "mugwort_pollen", "olive_pollen", "ragweed_pollen"]
+    .map((k) => c[k]).filter((v) => v != null && !isNaN(v));
+  if (grains.length) {
+    const b = pollenBand(Math.max(...grains));
+    dom.pollenBandEl.textContent = b.label;
+    dom.pollenBandEl.style.background = b.color;
+    dom.pollenStat.hidden = false;
+  } else dom.pollenStat.hidden = true;
+}
+
+// Sun panel: next event, sunrise/sunset, day length (+ delta), golden hour.
+function renderSun(daily, lat) {
+  if (!daily || !daily.sunrise || !daily.sunrise[0]) { dom.sunPanel.hidden = true; return; }
+  const sr = new Date(daily.sunrise[0]);
+  const ss = new Date(daily.sunset[0]);
+  const srNext = daily.sunrise[1] ? new Date(daily.sunrise[1]) : null;
+  const now = new Date();
+
+  dom.sunriseVal.textContent = hhmm(sr);
+  dom.sunsetVal.textContent = hhmm(ss);
+
+  let label = "SUNRISE IN", when = sr;
+  if (now >= sr && now < ss) { label = "SUNSET IN"; when = ss; }
+  else if (now >= ss) { label = "SUNRISE IN"; when = srNext; }
+  dom.sunNextLabel.textContent = label;
+  dom.sunNextVal.textContent = when ? durHuman(when - now) : "—";
+
+  dom.dayLenVal.textContent = durHM(ss - sr);
+  if (lat != null) {
+    const delta = Math.round((dayLengthHours(now, lat) - dayLengthHours(new Date(now - 86400000), lat)) * 3600);
+    dom.dayDeltaVal.textContent = `${delta >= 0 ? "+" : "−"}${durMS(Math.abs(delta))} vs yesterday`;
+  } else dom.dayDeltaVal.textContent = "";
+
+  // Golden hour: ~50 min before sunset (evening) or after sunrise (overnight).
+  const gh = now >= sr && now < ss
+    ? [new Date(ss.getTime() - 50 * 60000), ss]
+    : [sr, new Date(sr.getTime() + 50 * 60000)];
+  dom.goldenVal.textContent = `${hhmm(gh[0])}–${hhmm(gh[1])}`;
+  dom.sunPanel.hidden = false;
+}
+
+// The active location's own clock, shown only when it differs from system time.
+let locZone = null, locOffsetSec = null;
+function updateLocTime() {
+  const sysOffset = -new Date().getTimezoneOffset() * 60;
+  if (!locZone || locOffsetSec == null || locOffsetSec === sysOffset) {
+    dom.locTime.hidden = true;
+    return;
+  }
+  try {
+    const t = new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: locZone,
+    }).format(new Date());
+    dom.locTime.textContent = `${t} local`;
+    dom.locTime.hidden = false;
+  } catch { dom.locTime.hidden = true; }
 }
 
 function renderWeather(data) {
@@ -767,6 +1045,15 @@ function renderWeather(data) {
   dom.uvValue.textContent = uv == null ? "—" : Math.round(uv * 10) / 10;
   dom.uvBand.textContent = band.label;
   dom.uvBand.style.background = band.color;
+
+  renderDetails(cur);
+  renderNowcast(data.minutely_15);
+  renderSun(data.daily, coords && coords.lat);
+
+  // Track the location's own timezone for the secondary "local" clock.
+  locZone = data.timezone || null;
+  locOffsetSec = data.utc_offset_seconds ?? null;
+  updateLocTime();
 
   renderRain(data.hourly.time, data.hourly.precipitation_probability);
   renderUV(data.hourly.time, data.hourly.uv_index);
@@ -800,12 +1087,43 @@ let lastWeatherAt = 0;
 async function loadWeather() {
   if (!coords) return;
   try {
-    const data = await fetchWeather(coords.lat, coords.lon);
+    // Air quality is best-effort (resolves to null on failure) so it never
+    // blocks the core weather render.
+    const [data, air] = await Promise.all([
+      fetchWeather(coords.lat, coords.lon),
+      fetchAir(coords.lat, coords.lon),
+    ]);
     renderWeather(data);
+    renderAir(air);
     lastWeatherAt = Date.now();
   } catch (e) {
     console.error("[homescreen] weather fetch failed:", e);
     showWeatherError();
+  }
+}
+
+// Saved-location carousel: a fixed set of "Here" (detected/GPS) plus the two
+// preset cities. "Here" gains coords once IP/GPS resolves.
+const carousel = {
+  entries: [
+    { id: "here", name: null, lat: null, lon: null, source: "ip" },
+    { id: "london", name: LONDON.city, lat: LONDON.lat, lon: LONDON.lon },
+    { id: "newyork", name: NEW_YORK.city, lat: NEW_YORK.lat, lon: NEW_YORK.lon },
+  ],
+  active: 0,
+};
+
+// Step to the next/previous entry that has known coords, and show it.
+function carouselGo(dir) {
+  const n = carousel.entries.length;
+  let i = carousel.active;
+  for (let step = 0; step < n; step++) {
+    i = (i + dir + n) % n;
+    const e = carousel.entries[i];
+    if (e.lat != null) {
+      setLocation({ lat: e.lat, lon: e.lon, name: e.name }, e.id === "here" ? (e.source || "ip") : "city");
+      return;
+    }
   }
 }
 
@@ -818,6 +1136,18 @@ async function setLocation(loc, source) {
   dom.preciseBtn.hidden = false;
   dom.preciseBtn.textContent = "update location";
 
+  // Sync the carousel: an explicit city selects its entry; anything else
+  // ("here") refreshes the first entry to the detected position.
+  if (source === "city") {
+    const i = carousel.entries.findIndex((e) => e.id !== "here" && e.name === loc.name);
+    if (i >= 0) carousel.active = i;
+  } else {
+    const h = carousel.entries[0];
+    h.lat = loc.lat; h.lon = loc.lon; h.source = source;
+    if (loc.name) h.name = loc.name;
+    carousel.active = 0;
+  }
+
   if (source === "fallback") dom.locName.textContent = "Showing " + loc.name;
   else dom.locName.textContent = loc.name || "Your location";
 
@@ -827,7 +1157,11 @@ async function setLocation(loc, source) {
   // Fixes that carry no name (GPS) — fill it in afterwards, best-effort.
   if (!loc.name) {
     const n = await resolveName(loc.lat, loc.lon);
-    if (n) { dom.locName.textContent = n; saveLoc({ lat: loc.lat, lon: loc.lon, name: n, source }); }
+    if (n) {
+      dom.locName.textContent = n;
+      if (carousel.active === 0) carousel.entries[0].name = n;
+      saveLoc({ lat: loc.lat, lon: loc.lon, name: n, source });
+    }
   }
 }
 
@@ -901,16 +1235,32 @@ async function init() {
     );
   });
 
+  // Carousel arrows (and ←/→ keys) cycle through the saved locations.
+  dom.locPrev.hidden = false;
+  dom.locNext.hidden = false;
+  dom.locPrev.addEventListener("click", () => carouselGo(-1));
+  dom.locNext.addEventListener("click", () => carouselGo(1));
+  addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft") carouselGo(-1);
+    else if (e.key === "ArrowRight") carouselGo(1);
+  });
+
   // 1. Instant render from the last known location, if any.
   const cached = loadLoc();
   if (cached && cached.lat != null) await setLocation(cached, cached.source || "ip");
 
-  // 2. Silently refresh from IP — unless the user previously made an explicit
-  //    choice (a GPS fix or a hand-picked city), which should stick.
-  if (!cached || (cached.source !== "precise" && cached.source !== "city")) {
+  // 2. Learn "here" from IP for the carousel, and switch to it unless the user
+  //    has an explicit choice (GPS fix or hand-picked city) that should stick.
+  const explicit = cached && (cached.source === "precise" || cached.source === "city");
+  if (carousel.entries[0].lat == null || !explicit) {
     const ip = await ipLocate();
-    if (ip) await setLocation(ip, "ip");
-    else if (!cached) await setLocation(FALLBACK, "fallback");
+    if (ip) {
+      const h = carousel.entries[0];
+      if (h.lat == null) { h.lat = ip.lat; h.lon = ip.lon; h.name = ip.name || h.name; h.source = "ip"; }
+      if (!explicit) await setLocation(ip, "ip");
+    } else if (!cached) {
+      await setLocation(FALLBACK, "fallback");
+    }
   }
 
   setInterval(loadWeather, WEATHER_REFRESH_MS);
