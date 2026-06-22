@@ -727,12 +727,14 @@ function drawerHTML(i) {
   const dateStr = d.time[i];
   const uv = chartHTML(daySlice(h.time, h.uv_index || [], dateStr), "uv");
   const rn = chartHTML(daySlice(h.time, h.precipitation_probability || [], dateStr), "rain");
-  const sr = new Date(d.sunrise[i]), ss = new Date(d.sunset[i]);
+  // Sun times are the location's local wall-time strings ("…T04:44"); show the
+  // HH:MM directly rather than reparsing in the viewer's timezone.
+  const hhmmOf = (s) => (s && s.length >= 16 ? s.slice(11, 16) : "—");
   const hi = d.temperature_2m_max[i], lo = d.temperature_2m_min[i];
   return `
     <div class="drawer-meta">
-      <span>SUNRISE <b>${pad(sr.getHours())}:${pad(sr.getMinutes())}</b></span>
-      <span>SUNSET <b>${pad(ss.getHours())}:${pad(ss.getMinutes())}</b></span>
+      <span>SUNRISE <b>${hhmmOf(d.sunrise[i])}</b></span>
+      <span>SUNSET <b>${hhmmOf(d.sunset[i])}</b></span>
       <span>HIGH <b>${round(hi)}°C / ${round(cToF(hi))}°F</b></span>
       <span>LOW <b>${round(lo)}°C / ${round(cToF(lo))}°F</b></span>
     </div>
@@ -889,7 +891,6 @@ function currentHourIndex(times) {
 }
 
 /* --- Small time/duration formatters for the conditions + sun panels --- */
-const hhmm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 function durHuman(ms) {            // "4h 12m" / "12m" / "5m"
   const m = Math.max(0, Math.round(ms / 60000));
   if (m >= 60) { const h = Math.floor(m / 60), r = m % 60; return r ? `${h}h ${r}m` : `${h}h`; }
@@ -898,6 +899,24 @@ function durHuman(ms) {            // "4h 12m" / "12m" / "5m"
 const durHM = (ms) => { const m = Math.round(ms / 60000); return `${Math.floor(m / 60)}h ${pad(m % 60)}m`; };
 const durMS = (sec) => { const m = Math.floor(sec / 60), s = sec % 60; return m ? `${m}m ${s}s` : `${s}s`; };
 const niceMins = (m) => (m >= 60 ? durHuman(m * 60000) : `${Math.max(5, Math.round(m / 5) * 5)} min`);
+
+// Open-Meteo (timezone=auto) returns local wall-time strings with no offset,
+// e.g. "2026-06-22T21:22". Parse to a true absolute instant using the
+// response's utc_offset_seconds; without this a different city's sun times
+// would be read in the viewer's own timezone (breaking countdowns).
+function apiTime(str, offsetSec) {
+  if (!str) return null;
+  const ms = Date.parse(str + "Z");
+  return isNaN(ms) ? null : new Date(ms - (offsetSec || 0) * 1000);
+}
+
+// Format an absolute Date as a wall clock in the given IANA timezone.
+function zoneHHMM(d, zone) {
+  if (!d) return "—";
+  return new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: zone || undefined,
+  }).format(d);
+}
 
 // Extra current conditions: feels-like, wind (+direction), humidity, pressure.
 function renderDetails(cur) {
@@ -972,15 +991,17 @@ function renderAir(air) {
 }
 
 // Sun panel: next event, sunrise/sunset, day length (+ delta), golden hour.
-function renderSun(daily, lat) {
+// Times are true instants (offset-aware) so countdowns are correct for any
+// city; displayed clock values are formatted in the location's own timezone.
+function renderSun(daily, lat, offsetSec, zone) {
   if (!daily || !daily.sunrise || !daily.sunrise[0]) { dom.sunPanel.hidden = true; return; }
-  const sr = new Date(daily.sunrise[0]);
-  const ss = new Date(daily.sunset[0]);
-  const srNext = daily.sunrise[1] ? new Date(daily.sunrise[1]) : null;
+  const sr = apiTime(daily.sunrise[0], offsetSec);
+  const ss = apiTime(daily.sunset[0], offsetSec);
+  const srNext = apiTime(daily.sunrise[1], offsetSec);
   const now = new Date();
 
-  dom.sunriseVal.textContent = hhmm(sr);
-  dom.sunsetVal.textContent = hhmm(ss);
+  dom.sunriseVal.textContent = zoneHHMM(sr, zone);
+  dom.sunsetVal.textContent = zoneHHMM(ss, zone);
 
   let label = "SUNRISE IN", when = sr;
   if (now >= sr && now < ss) { label = "SUNSET IN"; when = ss; }
@@ -998,7 +1019,7 @@ function renderSun(daily, lat) {
   const gh = now >= sr && now < ss
     ? [new Date(ss.getTime() - 50 * 60000), ss]
     : [sr, new Date(sr.getTime() + 50 * 60000)];
-  dom.goldenVal.textContent = `${hhmm(gh[0])}–${hhmm(gh[1])}`;
+  dom.goldenVal.textContent = `${zoneHHMM(gh[0], zone)}–${zoneHHMM(gh[1], zone)}`;
   dom.sunPanel.hidden = false;
 }
 
@@ -1046,13 +1067,14 @@ function renderWeather(data) {
   dom.uvBand.textContent = band.label;
   dom.uvBand.style.background = band.color;
 
-  renderDetails(cur);
-  renderNowcast(data.minutely_15);
-  renderSun(data.daily, coords && coords.lat);
-
-  // Track the location's own timezone for the secondary "local" clock.
+  // The location's timezone — used to interpret the API's local-time strings
+  // (sunrise/sunset) and to drive the secondary "local" clock.
   locZone = data.timezone || null;
   locOffsetSec = data.utc_offset_seconds ?? null;
+
+  renderDetails(cur);
+  renderNowcast(data.minutely_15);
+  renderSun(data.daily, coords && coords.lat, locOffsetSec, locZone);
   updateLocTime();
 
   renderRain(data.hourly.time, data.hourly.precipitation_probability);
@@ -1060,11 +1082,12 @@ function renderWeather(data) {
   weekData = { daily: data.daily, hourly: data.hourly };
   renderWeek(data.daily);
 
-  // Background reflects the real sky; the orb arc reads sunrise/sunset.
+  // Background reflects the real sky; the orb arc reads sunrise/sunset as true
+  // instants so the arc/phase track the chosen location, not the viewer's tz.
   skyState.condition = cond.key;
-  skyState.sunrise = new Date(data.daily.sunrise[0]);
-  skyState.sunset = new Date(data.daily.sunset[0]);
-  skyState.sunriseNext = data.daily.sunrise[1] ? new Date(data.daily.sunrise[1]) : null;
+  skyState.sunrise = apiTime(data.daily.sunrise[0], locOffsetSec);
+  skyState.sunset = apiTime(data.daily.sunset[0], locOffsetSec);
+  skyState.sunriseNext = apiTime(data.daily.sunrise[1], locOffsetSec);
   updateSky();
 }
 
