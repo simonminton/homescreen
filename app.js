@@ -43,13 +43,13 @@ function uvBand(uv) {
 }
 
 // Decide which secondary city clocks to show from the system timezone.
+// Each carries coords so clicking a clock can switch the weather location.
+const LONDON = { city: "London", zone: "Europe/London", lat: 51.5074, lon: -0.1278 };
+const NEW_YORK = { city: "New York", zone: "America/New_York", lat: 40.7128, lon: -74.006 };
 function secondaryCities(tz) {
-  if (tz === "Europe/London") return [{ city: "New York", zone: "America/New_York" }];
-  if (tz === "America/New_York") return [{ city: "London", zone: "Europe/London" }];
-  return [
-    { city: "London", zone: "Europe/London" },
-    { city: "New York", zone: "America/New_York" },
-  ];
+  if (tz === "Europe/London") return [NEW_YORK];
+  if (tz === "America/New_York") return [LONDON];
+  return [LONDON, NEW_YORK];
 }
 
 // Moon phase as a fraction of the synodic month: 0 = new, 0.5 = full.
@@ -214,7 +214,7 @@ const cityFormatters = cities.map((c) => ({ ...c, fmt: fmtTime(c.zone) }));
 
 // Build secondary clock markup once.
 dom.worldClocks.innerHTML = cityFormatters
-  .map((c) => `<div class="wclock"><span class="wc-city">${c.city}</span><span class="wc-time" data-zone="${c.zone}">--:--</span></div>`)
+  .map((c) => `<button type="button" class="wclock" data-lat="${c.lat}" data-lon="${c.lon}" data-name="${c.city}" title="Show weather for ${c.city}"><span class="wc-city">${c.city}</span><span class="wc-time" data-zone="${c.zone}">--:--</span></button>`)
   .join("");
 const wclockNodes = [...dom.worldClocks.querySelectorAll(".wc-time")];
 
@@ -710,13 +710,15 @@ const LOC_KEY = "hs:loc";
 const saveLoc = (loc) => { try { localStorage.setItem(LOC_KEY, JSON.stringify(loc)); } catch (e) {} };
 const loadLoc = () => { try { return JSON.parse(localStorage.getItem(LOC_KEY)); } catch (e) { return null; } };
 
-// Reverse-geocode for a display name (best-effort; silent on failure).
+// Reverse-geocode coords → a place name (best-effort; silent on failure).
+// BigDataCloud's client endpoint is keyless and CORS-friendly. Open-Meteo's
+// geocoding API only does forward (name → coords) search, so it can't help here.
 async function resolveName(lat, lon) {
   try {
-    const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&latitude=${lat}&longitude=${lon}`);
+    const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
     if (!r.ok) return null;
     const j = await r.json();
-    return j?.results?.[0]?.name || null;
+    return j.city || j.locality || j.principalSubdivision || j.countryName || null;
   } catch { return null; }
 }
 
@@ -808,12 +810,13 @@ async function loadWeather() {
 }
 
 // Apply a resolved location: update coords + label, persist, and fetch weather.
-// source: "precise" | "ip" | "fallback"
+// source: "precise" | "city" | "ip" | "fallback"
 async function setLocation(loc, source) {
   coords = { lat: loc.lat, lon: loc.lon };
   dom.location.classList.toggle("fallback", source === "fallback");
-  dom.preciseBtn.hidden = source === "precise";
-  dom.preciseBtn.textContent = "use precise location";
+  // The button always stays available so the user can re-detect their location.
+  dom.preciseBtn.hidden = false;
+  dom.preciseBtn.textContent = "update location";
 
   if (source === "fallback") dom.locName.textContent = "Showing " + loc.name;
   else dom.locName.textContent = loc.name || "Your location";
@@ -821,8 +824,8 @@ async function setLocation(loc, source) {
   saveLoc({ lat: loc.lat, lon: loc.lon, name: loc.name || null, source });
   await loadWeather();
 
-  // Precise fixes carry no name — fill it in afterwards, best-effort.
-  if (source === "precise" && !loc.name) {
+  // Fixes that carry no name (GPS) — fill it in afterwards, best-effort.
+  if (!loc.name) {
     const n = await resolveName(loc.lat, loc.lon);
     if (n) { dom.locName.textContent = n; saveLoc({ lat: loc.lat, lon: loc.lon, name: n, source }); }
   }
@@ -879,7 +882,8 @@ async function init() {
     }
   });
 
-  // Opt-in precise location (triggers the GPS prompt only on click).
+  // Update-location button: re-detects the user's position via GPS (the
+  // permission prompt only appears on this explicit click).
   dom.preciseBtn.addEventListener("click", async () => {
     dom.preciseBtn.textContent = "locating…";
     const loc = await preciseLocate();
@@ -887,12 +891,23 @@ async function init() {
     else dom.preciseBtn.textContent = "location blocked";
   });
 
+  // Click a secondary clock (London / New York) to show its weather.
+  dom.worldClocks.addEventListener("click", (e) => {
+    const btn = e.target.closest(".wclock");
+    if (!btn) return;
+    setLocation(
+      { lat: +btn.dataset.lat, lon: +btn.dataset.lon, name: btn.dataset.name },
+      "city"
+    );
+  });
+
   // 1. Instant render from the last known location, if any.
   const cached = loadLoc();
   if (cached && cached.lat != null) await setLocation(cached, cached.source || "ip");
 
-  // 2. Silently refresh from IP — unless the user previously chose precise.
-  if (!cached || cached.source !== "precise") {
+  // 2. Silently refresh from IP — unless the user previously made an explicit
+  //    choice (a GPS fix or a hand-picked city), which should stick.
+  if (!cached || (cached.source !== "precise" && cached.source !== "city")) {
     const ip = await ipLocate();
     if (ip) await setLocation(ip, "ip");
     else if (!cached) await setLocation(FALLBACK, "fallback");

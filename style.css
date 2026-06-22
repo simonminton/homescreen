@@ -256,7 +256,15 @@ body {
 .precise-btn:hover { color: var(--ink); border-color: var(--ink-soft); }
 
 .world-clocks { display: flex; gap: 1.6rem; text-align: right; }
-.wclock { display: flex; flex-direction: column; gap: 0.3em; align-items: flex-end; }
+.wclock {
+  display: flex; flex-direction: column; gap: 0.3em; align-items: flex-end;
+  background: none; border: 0; padding: 0.1em 0.1em; margin: -0.1em;
+  font: inherit; letter-spacing: inherit; text-transform: inherit;
+  cursor: pointer; border-radius: 4px;
+  transition: opacity 0.3s var(--ease), background 0.3s var(--ease);
+}
+.wclock:hover { background: var(--ink-faint); }
+.wclock:hover .wc-city { color: var(--ink-soft); }
 .wclock .wc-city { color: var(--ink-faint); font-size: 0.66rem; }
 .wclock .wc-time { color: var(--ink); font-size: 0.92rem; letter-spacing: 0.08em; font-variant-numeric: tabular-nums; }
 
