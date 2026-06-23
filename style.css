@@ -15,10 +15,10 @@
   --cloud-tint: rgba(255, 255, 255, 0.55);
 
   /* Foreground ink */
-  --ink: rgba(255, 255, 255, 0.96);
-  --ink-soft: rgba(255, 255, 255, 0.66);
-  --ink-faint: rgba(255, 255, 255, 0.40);
-  --ink-line: rgba(255, 255, 255, 0.14);
+  --ink: rgba(255, 255, 255, 0.98);
+  --ink-soft: rgba(255, 255, 255, 0.78);
+  --ink-faint: rgba(255, 255, 255, 0.56);
+  --ink-line: rgba(255, 255, 255, 0.18);
 
   /* Veil overlay (haze / overcast) */
   --veil-color: transparent;
@@ -205,18 +205,22 @@ body {
 
 /* ---------- Foreground layout ---------- */
 
+/* First screen: a calm full-viewport stage — clock + weather summary,
+   centred as a group with the scroll hint pinned to the bottom. */
 .screen {
   position: relative;
   z-index: 10;
   min-height: 100vh;
-  display: grid;
-  grid-template-rows: auto 1fr auto auto auto;
+  display: flex;
+  flex-direction: column;
   padding: clamp(1.6rem, 4vw, 3.4rem);
   gap: clamp(1rem, 2.4vh, 2rem);
 }
+.hero { margin-top: auto; }            /* centre the clock+weather block */
+.scroll-hint { margin-top: auto; }     /* pin the hint to the bottom */
 
-/* Staggered entrance */
-.topbar, .hero, .weather, .sun-panel, .charts, .temp-chart {
+/* Staggered entrance (first screen only) */
+.topbar, .hero, .weather {
   opacity: 0;
   transform: translateY(14px);
   filter: blur(8px);
@@ -225,9 +229,6 @@ body {
 .topbar     { animation-delay: 120ms; }
 .hero       { animation-delay: 300ms; }
 .weather    { animation-delay: 560ms; }
-.sun-panel  { animation-delay: 700ms; }
-.charts     { animation-delay: 820ms; }
-.temp-chart { animation-delay: 900ms; }
 
 @keyframes rise {
   to { opacity: 1; transform: translateY(0); filter: blur(0); }
@@ -343,8 +344,29 @@ body {
   letter-spacing: 0.01em;
 }
 
-/* Weather */
-.weather { display: flex; flex-direction: column; align-items: center; }
+/* Weather summary (first screen) — a touch of shadow keeps it legible on
+   bright/overcast skies. */
+.weather { display: flex; flex-direction: column; align-items: center; text-shadow: 0 1px 18px rgba(0, 0, 0, 0.35); }
+
+/* Details section — revealed on scroll; its own calm full-height panel. */
+.details {
+  position: relative;
+  z-index: 10;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: clamp(3rem, 9vh, 7rem) clamp(1.6rem, 4vw, 3.4rem) clamp(2.5rem, 6vh, 5rem);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(2rem, 5vh, 3.4rem);
+}
+/* Readout chips (UV / MOON / AIR / POLLEN), centred with no leading divider. */
+.stat-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: clamp(1.6rem, 5vw, 3.6rem);
+}
+.stat-grid .uv { border-left: 0; padding-left: 0; }
 
 .weather-main {
   display: flex;

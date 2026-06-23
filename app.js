@@ -6,13 +6,13 @@
    this file is the DOM + orchestration layer.
    ========================================================================= */
 
-import { cToF, round, pad, localDateStr, durHuman, durHM, durMS, niceMins, apiTime, zoneHHMM, compass } from "./lib/format.js?v=545a1bd0";
-import { wmoToCondition, uvBand, aqiBand, pollenBand } from "./lib/weather.js?v=545a1bd0";
-import { sunAltitude, dayLengthHours } from "./lib/solar.js?v=545a1bd0";
-import { moonPhaseFrac, moonInfo, moonSVG } from "./lib/moon.js?v=545a1bd0";
-import { mix, skyPalette, skyPaletteByAltitude, timeOfDayPhase, orbArc } from "./lib/sky.js?v=545a1bd0";
-import { daySlice, chartHTML, uvBarColor, tempChartSVG } from "./lib/charts.js?v=545a1bd0";
-import { LONDON, NEW_YORK, secondaryCities } from "./lib/cities.js?v=545a1bd0";
+import { cToF, round, pad, localDateStr, durHuman, durHM, durMS, niceMins, apiTime, zoneHHMM, compass } from "./lib/format.js?v=647ac659";
+import { wmoToCondition, uvBand, aqiBand, pollenBand } from "./lib/weather.js?v=647ac659";
+import { sunAltitude, dayLengthHours } from "./lib/solar.js?v=647ac659";
+import { moonPhaseFrac, moonInfo, moonSVG } from "./lib/moon.js?v=647ac659";
+import { mix, skyPalette, skyPaletteByAltitude, timeOfDayPhase, orbArc } from "./lib/sky.js?v=647ac659";
+import { daySlice, chartHTML, uvBarColor, tempChartSVG } from "./lib/charts.js?v=647ac659";
+import { LONDON, NEW_YORK, secondaryCities } from "./lib/cities.js?v=647ac659";
 
 const FALLBACK = { name: "London", lat: 51.5074, lon: -0.1278 };
 const WEATHER_REFRESH_MS = 15 * 60 * 1000;
@@ -951,10 +951,10 @@ async function init() {
     if (Date.now() - lastWeatherAt > 10 * 60 * 1000) loadWeather();
   });
 
-  // Scroll hint glides to the forecast without leaving a #hash in the URL.
+  // Scroll hint glides to the detail section without leaving a #hash in the URL.
   dom.scrollHint.addEventListener("click", (e) => {
     e.preventDefault();
-    document.getElementById("forecast").scrollIntoView({ behavior: "smooth" });
+    document.getElementById("details").scrollIntoView({ behavior: "smooth" });
   });
 
   // Fade the scroll hint away once the user starts scrolling.

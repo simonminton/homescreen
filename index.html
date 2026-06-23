@@ -13,7 +13,7 @@
   <meta name="theme-color" content="#0a0e27" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='34' fill='%23ffd98a'/></svg>" />
   <!-- ?v= cache-busting hashes are written by `npm run stamp` (see stamp.mjs) -->
-  <link rel="stylesheet" href="style.css?v=545a1bd0" />
+  <link rel="stylesheet" href="style.css?v=647ac659" />
 </head>
 <body>
   <!-- Atmospheric layers -->
@@ -95,34 +95,43 @@
             <span class="lo"><span class="lbl">LOW</span><span class="caret">▼</span><span id="tempLo">--°</span></span>
           </div>
         </div>
-        <div class="uv" id="uv">
-          <div class="uv-label">UV INDEX</div>
-          <div class="uv-value"><span id="uvValue">--</span><span class="uv-band" id="uvBand"></span></div>
-        </div>
-        <div class="uv moon-stat" id="moonStat" hidden>
-          <div class="uv-label">MOON</div>
-          <div class="moon-stat-value">
-            <span class="moon-mini" id="moonIcon"></span>
-            <span class="moon-name" id="moonName">—</span>
-            <span class="uv-band moon-illum" id="moonIllum"></span>
-          </div>
-        </div>
-        <div class="uv aqi-stat" id="aqiStat" hidden>
-          <div class="uv-label">AIR QUALITY</div>
-          <div class="uv-value"><span id="aqiValue">--</span><span class="uv-band" id="aqiBandEl"></span></div>
-        </div>
-        <div class="uv pollen-stat" id="pollenStat" hidden>
-          <div class="uv-label">POLLEN</div>
-          <div class="uv-value"><span class="uv-band" id="pollenBandEl"></span></div>
-        </div>
       </div>
 
       <div class="wx-nowcast" id="nowcast" hidden></div>
-      <div class="wx-details" id="wxDetails" hidden></div>
-      <div class="air-detail" id="airDetail" hidden></div>
-
       <div class="wx-error" id="wxError" hidden></div>
     </section>
+
+    <!-- Scroll affordance -->
+    <a class="scroll-hint" id="scrollHint" href="#details">more<span class="chev">⌄</span></a>
+  </main>
+
+  <!-- Details (revealed on scroll): readouts, sun, charts -->
+  <section class="details" id="details">
+    <div class="stat-grid">
+      <div class="uv" id="uv">
+        <div class="uv-label">UV INDEX</div>
+        <div class="uv-value"><span id="uvValue">--</span><span class="uv-band" id="uvBand"></span></div>
+      </div>
+      <div class="uv moon-stat" id="moonStat" hidden>
+        <div class="uv-label">MOON</div>
+        <div class="moon-stat-value">
+          <span class="moon-mini" id="moonIcon"></span>
+          <span class="moon-name" id="moonName">—</span>
+          <span class="uv-band moon-illum" id="moonIllum"></span>
+        </div>
+      </div>
+      <div class="uv aqi-stat" id="aqiStat" hidden>
+        <div class="uv-label">AIR QUALITY</div>
+        <div class="uv-value"><span id="aqiValue">--</span><span class="uv-band" id="aqiBandEl"></span></div>
+      </div>
+      <div class="uv pollen-stat" id="pollenStat" hidden>
+        <div class="uv-label">POLLEN</div>
+        <div class="uv-value"><span class="uv-band" id="pollenBandEl"></span></div>
+      </div>
+    </div>
+
+    <div class="wx-details" id="wxDetails" hidden></div>
+    <div class="air-detail" id="airDetail" hidden></div>
 
     <!-- Sun & day length -->
     <section class="sun-panel" id="sunPanel" hidden>
@@ -169,10 +178,7 @@
         <span class="tc-label" id="tcLabel" hidden></span>
       </div>
     </section>
-
-    <!-- Scroll affordance -->
-    <a class="scroll-hint" id="scrollHint" href="#forecast">7-day forecast<span class="chev">⌄</span></a>
-  </main>
+  </section>
 
   <!-- 7-day forecast (revealed on scroll) -->
   <section class="forecast" id="forecast">
@@ -180,6 +186,6 @@
     <div class="week-panel" id="weekPanel"></div>
   </section>
 
-  <script type="module" src="app.js?v=545a1bd0"></script>
+  <script type="module" src="app.js?v=647ac659"></script>
 </body>
 </html>
