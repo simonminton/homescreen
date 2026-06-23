@@ -11,7 +11,7 @@ import { wmoToCondition, uvBand, aqiBand, pollenBand } from "./lib/weather.js";
 import { sunAltitude, dayLengthHours } from "./lib/solar.js";
 import { moonPhaseFrac, moonInfo, moonSVG } from "./lib/moon.js";
 import { mix, skyPalette, skyPaletteByAltitude, timeOfDayPhase, orbArc } from "./lib/sky.js";
-import { daySlice, chartHTML, uvBarColor } from "./lib/charts.js";
+import { daySlice, chartHTML, uvBarColor, tempChartSVG } from "./lib/charts.js";
 import { LONDON, NEW_YORK, secondaryCities } from "./lib/cities.js";
 
 const FALLBACK = { name: "London", lat: 51.5074, lon: -0.1278 };
@@ -41,6 +41,8 @@ const dom = {
   wxError: el("wxError"),
   rainBars: el("rainBars"), rainAxis: el("rainAxis"), rainPeak: el("rainPeak"),
   uvBars: el("uvBars"), uvAxis: el("uvAxis"), uvPeak: el("uvPeak"),
+  tempChart: el("tempChart"), tempRange: el("tempRange"), tempCurve: el("tempCurve"),
+  tcNowLine: el("tcNowLine"), tcDot: el("tcDot"), tcLabel: el("tcLabel"),
   weekPanel: el("weekPanel"), scrollHint: el("scrollHint"),
   sky: el("sky"), orb: el("orb"), veil: el("veil"), lightning: el("lightning"),
 };
@@ -352,6 +354,30 @@ function renderUV(times, uvs) {
   dom.uvPeak.textContent = c.peakLabel;
 }
 
+function renderTempChart(times, temps) {
+  if (!temps) { dom.tempChart.hidden = true; return; }
+  const { svg, min, max, now } = tempChartSVG(daySlice(times, temps, localDateStr(new Date())));
+  if (!svg) { dom.tempChart.hidden = true; return; }
+  // Keep the marker nodes; only replace the <svg>.
+  const old = dom.tempCurve.querySelector("svg");
+  if (old) old.remove();
+  dom.tempCurve.insertAdjacentHTML("afterbegin", svg);
+  dom.tempRange.textContent = `${round(min)}° – ${round(max)}°`;
+
+  if (now) {
+    dom.tcNowLine.style.left = now.x.toFixed(1) + "%";
+    dom.tcDot.style.left = now.x.toFixed(1) + "%";
+    dom.tcDot.style.top = now.y.toFixed(1) + "%";
+    dom.tcLabel.style.left = now.x.toFixed(1) + "%";
+    dom.tcLabel.style.top = now.y.toFixed(1) + "%";
+    dom.tcLabel.textContent = round(now.v) + "°";
+    dom.tcNowLine.hidden = dom.tcDot.hidden = dom.tcLabel.hidden = false;
+  } else {
+    dom.tcNowLine.hidden = dom.tcDot.hidden = dom.tcLabel.hidden = true;
+  }
+  dom.tempChart.hidden = false;
+}
+
 /* ---------------------------------------------------------------------------
    7-day forecast (glassmorphic panel)
    ------------------------------------------------------------------------- */
@@ -502,7 +528,7 @@ async function fetchWeather(lat, lon) {
     `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day,wind_speed_10m,wind_direction_10m,surface_pressure` +
     `&minutely_15=precipitation` +
     `&daily=weather_code,temperature_2m_max,temperature_2m_min,uv_index_max,precipitation_probability_max,sunrise,sunset` +
-    `&hourly=precipitation_probability,uv_index` +
+    `&hourly=precipitation_probability,uv_index,temperature_2m` +
     `&timezone=auto&forecast_days=7`;
   const r = await fetch(url);
   if (!r.ok) throw new Error("weather " + r.status);
@@ -693,6 +719,7 @@ function renderWeather(data) {
 
   renderRain(data.hourly.time, data.hourly.precipitation_probability);
   renderUV(data.hourly.time, data.hourly.uv_index);
+  renderTempChart(data.hourly.time, data.hourly.temperature_2m);
   weekData = { daily: data.daily, hourly: data.hourly };
   renderWeek(data.daily);
 

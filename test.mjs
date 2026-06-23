@@ -9,7 +9,7 @@ import { wmoToCondition, uvBand, aqiBand, pollenBand } from "./lib/weather.js";
 import { sunAltitude, dayLengthHours } from "./lib/solar.js";
 import { moonPhaseFrac, moonInfo, moonSVG } from "./lib/moon.js";
 import { mix, skyPalette, skyPaletteByAltitude, timeOfDayPhase, orbArc } from "./lib/sky.js";
-import { daySlice, chartHTML, uvBarColor } from "./lib/charts.js";
+import { daySlice, chartHTML, uvBarColor, tempChartSVG } from "./lib/charts.js";
 import { secondaryCities, LONDON, NEW_YORK } from "./lib/cities.js";
 
 /* ---- format ---- */
@@ -193,6 +193,23 @@ test("chartHTML produces bars, axis and a peak label", () => {
   const uv = chartHTML(slice, "uv");
   assert.match(uv.peakLabel, /^peak /);
   assert.match(uvBarColor(2), /^linear-gradient/);
+});
+
+test("tempChartSVG: svg + min/max + now marker", () => {
+  const slice = [
+    { t: new Date("2026-06-22T00:00"), v: 18, now: false, past: true },
+    { t: new Date("2026-06-22T12:00"), v: 34, now: true, past: false },
+    { t: new Date("2026-06-22T23:00"), v: 20, now: false, past: false },
+  ];
+  const { svg, min, max, now } = tempChartSVG(slice);
+  assert.match(svg, /<svg/);
+  assert.match(svg, /tc-line/);
+  assert.equal(min, 18);
+  assert.equal(max, 34);
+  assert.ok(now && Math.abs(now.x - 50) < 0.01, `now.x ~50, got ${now && now.x}`);
+  assert.equal(now.v, 34);
+  // Empty slice is handled.
+  assert.equal(tempChartSVG([]).svg, "");
 });
 
 /* ---- cities ---- */

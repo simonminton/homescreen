@@ -216,17 +216,18 @@ body {
 }
 
 /* Staggered entrance */
-.topbar, .hero, .weather, .sun-panel, .charts {
+.topbar, .hero, .weather, .sun-panel, .charts, .temp-chart {
   opacity: 0;
   transform: translateY(14px);
   filter: blur(8px);
   animation: rise 1100ms var(--ease) forwards;
 }
-.topbar    { animation-delay: 120ms; }
-.hero      { animation-delay: 300ms; }
-.weather   { animation-delay: 560ms; }
-.sun-panel { animation-delay: 700ms; }
-.charts    { animation-delay: 820ms; }
+.topbar     { animation-delay: 120ms; }
+.hero       { animation-delay: 300ms; }
+.weather    { animation-delay: 560ms; }
+.sun-panel  { animation-delay: 700ms; }
+.charts     { animation-delay: 820ms; }
+.temp-chart { animation-delay: 900ms; }
 
 @keyframes rise {
   to { opacity: 1; transform: translateY(0); filter: blur(0); }
@@ -434,6 +435,40 @@ body {
   font-size: 0.78rem;
   letter-spacing: 0.1em;
   color: var(--ink-soft);
+}
+
+/* Full-width hourly temperature curve */
+.temp-chart { margin-top: clamp(1.4rem, 3vh, 2.2rem); }
+.temp-curve {
+  position: relative;
+  height: 78px;
+  margin-top: 0.6rem;
+}
+.temp-curve svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
+.tc-area { fill: rgba(255, 209, 138, 0.1); }
+.tc-line {
+  fill: none;
+  stroke: #ffd98a;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.tc-now-line { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--ink-line); transform: translateX(-50%); }
+.tc-dot {
+  position: absolute;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: #ffd98a;
+  box-shadow: 0 0 10px 1px rgba(255, 217, 138, 0.7);
+  transform: translate(-50%, -50%);
+}
+.tc-label {
+  position: absolute;
+  transform: translate(-50%, -180%);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  color: var(--ink);
+  white-space: nowrap;
 }
 
 /* 24h timeline charts (UV + rain) */
