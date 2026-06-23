@@ -2,272 +2,20 @@
 
 /* =========================================================================
    Homescreen — atmospheric clock + weather
-   Vanilla JS, no build step. Logic helpers are pure & isolated for testing.
+   No build step. Pure logic lives in ./lib/* ES modules (unit-tested);
+   this file is the DOM + orchestration layer.
    ========================================================================= */
+
+import { cToF, round, pad, localDateStr, durHuman, durHM, durMS, niceMins, apiTime, zoneHHMM, compass } from "./lib/format.js";
+import { wmoToCondition, uvBand, aqiBand, pollenBand } from "./lib/weather.js";
+import { sunAltitude, dayLengthHours } from "./lib/solar.js";
+import { moonPhaseFrac, moonInfo, moonSVG } from "./lib/moon.js";
+import { mix, skyPalette, skyPaletteByAltitude, timeOfDayPhase, orbArc } from "./lib/sky.js";
+import { daySlice, chartHTML, uvBarColor } from "./lib/charts.js";
+import { LONDON, NEW_YORK, secondaryCities } from "./lib/cities.js";
 
 const FALLBACK = { name: "London", lat: 51.5074, lon: -0.1278 };
 const WEATHER_REFRESH_MS = 15 * 60 * 1000;
-
-/* ---------------------------------------------------------------------------
-   Pure logic helpers
-   ------------------------------------------------------------------------- */
-
-const cToF = (c) => (c * 9) / 5 + 32;
-const round = (n) => Math.round(n);
-
-// WMO weather code -> normalized condition + readable label.
-function wmoToCondition(code) {
-  if (code === 0) return { key: "clear", label: "Clear" };
-  if (code === 1) return { key: "clear", label: "Mainly clear" };
-  if (code === 2) return { key: "partly", label: "Partly cloudy" };
-  if (code === 3) return { key: "cloudy", label: "Overcast" };
-  if (code === 45 || code === 48) return { key: "fog", label: "Fog" };
-  if (code >= 51 && code <= 57) return { key: "rain", label: "Drizzle" };
-  if (code >= 61 && code <= 67) return { key: "rain", label: "Rain" };
-  if (code >= 80 && code <= 82) return { key: "rain", label: "Rain showers" };
-  if (code >= 71 && code <= 77) return { key: "snow", label: "Snow" };
-  if (code === 85 || code === 86) return { key: "snow", label: "Snow showers" };
-  if (code === 95) return { key: "storm", label: "Thunderstorm" };
-  if (code === 96 || code === 99) return { key: "storm", label: "Thunderstorm, hail" };
-  return { key: "cloudy", label: "Cloudy" };
-}
-
-// UV index -> descriptive band.
-function uvBand(uv) {
-  if (uv == null || isNaN(uv)) return { label: "—", color: "rgba(255,255,255,0.1)" };
-  if (uv < 3) return { label: "Low", color: "rgba(120,200,140,0.32)" };
-  if (uv < 6) return { label: "Moderate", color: "rgba(232,200,90,0.34)" };
-  if (uv < 8) return { label: "High", color: "rgba(232,150,70,0.38)" };
-  if (uv < 11) return { label: "Very high", color: "rgba(225,90,80,0.4)" };
-  return { label: "Extreme", color: "rgba(180,100,200,0.42)" };
-}
-
-// US AQI -> descriptive band + chip colour (matches the UV badge styling).
-function aqiBand(aqi) {
-  if (aqi == null || isNaN(aqi)) return { label: "—", color: "rgba(255,255,255,0.1)" };
-  if (aqi <= 50)  return { label: "Good", color: "rgba(120,200,140,0.34)" };
-  if (aqi <= 100) return { label: "Moderate", color: "rgba(232,200,90,0.34)" };
-  if (aqi <= 150) return { label: "Unhealthy*", color: "rgba(232,150,70,0.38)" };
-  if (aqi <= 200) return { label: "Unhealthy", color: "rgba(225,90,80,0.4)" };
-  if (aqi <= 300) return { label: "Very unhealthy", color: "rgba(180,100,200,0.42)" };
-  return { label: "Hazardous", color: "rgba(160,60,70,0.46)" };
-}
-
-// Peak pollen across types (grains/m³) -> band. Rough, type-agnostic scale.
-function pollenBand(grains) {
-  if (grains == null || isNaN(grains)) return { label: "—", color: "rgba(255,255,255,0.1)" };
-  if (grains < 10)  return { label: "Low", color: "rgba(120,200,140,0.34)" };
-  if (grains < 50)  return { label: "Moderate", color: "rgba(232,200,90,0.34)" };
-  if (grains < 100) return { label: "High", color: "rgba(232,150,70,0.38)" };
-  return { label: "Very high", color: "rgba(225,90,80,0.4)" };
-}
-
-// Compass point from a bearing in degrees (meteorological: direction wind FROM).
-const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-const compass = (deg) => COMPASS[Math.round((deg % 360) / 45) % 8];
-
-// Decide which secondary city clocks to show from the system timezone.
-// Each carries coords so clicking a clock can switch the weather location.
-const LONDON = { city: "London", zone: "Europe/London", lat: 51.5074, lon: -0.1278 };
-const NEW_YORK = { city: "New York", zone: "America/New_York", lat: 40.7128, lon: -74.006 };
-function secondaryCities(tz) {
-  if (tz === "Europe/London") return [NEW_YORK];
-  if (tz === "America/New_York") return [LONDON];
-  return [LONDON, NEW_YORK];
-}
-
-// Moon phase as a fraction of the synodic month: 0 = new, 0.5 = full.
-const SYNODIC = 29.53058867;
-function moonPhaseFrac(date) {
-  const ref = Date.UTC(2000, 0, 6, 18, 14); // known new moon
-  const days = (date.getTime() - ref) / 86400000;
-  const p = (days % SYNODIC) / SYNODIC;
-  return p < 0 ? p + 1 : p;
-}
-
-function moonInfo(p) {
-  const illum = Math.round(((1 - Math.cos(2 * Math.PI * p)) / 2) * 100);
-  const names = ["New Moon", "Waxing Crescent", "First Quarter", "Waxing Gibbous",
-                 "Full Moon", "Waning Gibbous", "Last Quarter", "Waning Crescent"];
-  return { name: names[Math.round(p * 8) % 8], illum };
-}
-
-// Phase-accurate moon as inline SVG: lit shape bounded by the limb and the
-// terminator ellipse (rx = R·|cos 2πp|), plus earthshine disc and craters.
-// uid keeps gradient/clip ids unique when the SVG appears twice on the page.
-function moonSVG(p, uid) {
-  const C = 50, R = 46;
-  const t = Math.cos(2 * Math.PI * p);
-  const rx = (Math.abs(t) * R).toFixed(2);
-  let litPath = "";
-  if (Math.min(p, 1 - p) < 0.015) litPath = ""; // new — earthshine only
-  else if (Math.abs(p - 0.5) < 0.015)
-    litPath = `M ${C} ${C - R} A ${R} ${R} 0 1 1 ${C} ${C + R} A ${R} ${R} 0 1 1 ${C} ${C - R} Z`;
-  else if (p < 0.5) // waxing: lit on the right
-    litPath = `M ${C} ${C - R} A ${R} ${R} 0 0 1 ${C} ${C + R} A ${rx} ${R} 0 0 ${t > 0 ? 0 : 1} ${C} ${C - R} Z`;
-  else // waning: lit on the left
-    litPath = `M ${C} ${C - R} A ${R} ${R} 0 0 0 ${C} ${C + R} A ${rx} ${R} 0 0 ${t > 0 ? 1 : 0} ${C} ${C - R} Z`;
-
-  const lit = litPath ? `<path d="${litPath}" fill="url(#mlit-${uid})"/>` : "";
-  const craters = litPath
-    ? `<defs><clipPath id="mclip-${uid}"><path d="${litPath}"/></clipPath></defs>
-       <g clip-path="url(#mclip-${uid})" fill="rgba(125,140,175,0.28)">
-         <circle cx="36" cy="40" r="7"/><circle cx="58" cy="60" r="5"/>
-         <circle cx="52" cy="28" r="3.5"/><circle cx="42" cy="64" r="4.5"/>
-         <circle cx="66" cy="40" r="3"/><circle cx="30" cy="55" r="3.5"/>
-       </g>`
-    : "";
-  return `<svg viewBox="0 0 100 100" aria-hidden="true">
-    <defs>
-      <radialGradient id="mlit-${uid}" cx="42%" cy="38%" r="78%">
-        <stop offset="0%" stop-color="#f6f8ff"/>
-        <stop offset="55%" stop-color="#dde6f8"/>
-        <stop offset="100%" stop-color="#bfcce8"/>
-      </radialGradient>
-    </defs>
-    <circle cx="${C}" cy="${C}" r="${R}" fill="rgba(175,190,220,0.12)"/>
-    ${lit}
-    ${craters}
-  </svg>`;
-}
-
-// Time-of-day phase from current time relative to sunrise/sunset Date objects.
-// Returns one of: night | dawn | day | golden | dusk.
-function timeOfDayPhase(now, sunrise, sunset) {
-  if (!sunrise || !sunset) {
-    const h = now.getHours();
-    if (h < 6 || h >= 21) return "night";
-    if (h < 8) return "dawn";
-    if (h < 17) return "day";
-    if (h < 19) return "golden";
-    return "dusk";
-  }
-  const m = 60 * 1000;
-  const dawnStart = sunrise.getTime() - 60 * m;
-  const dawnEnd = sunrise.getTime() + 40 * m;
-  const goldenStart = sunset.getTime() - 60 * m;
-  const sunsetT = sunset.getTime();
-  const duskEnd = sunset.getTime() + 50 * m;
-  const t = now.getTime();
-  if (t < dawnStart || t > duskEnd) return "night";
-  if (t < dawnEnd) return "dawn";
-  if (t < goldenStart) return "day";
-  if (t < sunsetT) return "golden";
-  return "dusk";
-}
-
-// Base sky palettes (clear skies) per phase: [top, mid, bottom].
-const BASE_PALETTES = {
-  night:  ["#080a1f", "#101633", "#1a1430"],
-  dawn:   ["#243a6b", "#9d6585", "#f0a878"],
-  day:    ["#2f6fc7", "#5fa0df", "#a9d0ee"],
-  golden: ["#1d335c", "#d4733f", "#f2bd6e"],
-  dusk:   ["#15152f", "#473867", "#9c5570"],
-};
-
-const hexToRgb = (hex) => {
-  const h = hex.replace("#", "");
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-};
-const rgbToCss = ([r, g, b]) => `rgb(${r | 0}, ${g | 0}, ${b | 0})`;
-const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
-
-// Pull a clear-sky palette toward a target tint by amount t.
-function tintPalette(palette, target, t) {
-  return palette.map((hex) => rgbToCss(mix(hexToRgb(hex), target, t)));
-}
-
-// Final sky palette from phase + condition.
-function skyPalette(phase, condition) {
-  const base = BASE_PALETTES[phase] || BASE_PALETTES.day;
-  switch (condition) {
-    case "cloudy":
-      return tintPalette(base, [86, 92, 104], 0.55);
-    case "partly":
-      return tintPalette(base, [110, 120, 135], 0.25);
-    case "rain":
-      return tintPalette(base, [44, 52, 66], 0.62);
-    case "storm":
-      return tintPalette(base, [26, 30, 42], 0.72);
-    case "snow":
-      return tintPalette(base, [150, 158, 172], 0.5);
-    case "fog":
-      return tintPalette(base, [150, 152, 158], 0.6);
-    default:
-      return base.map((hex) => rgbToCss(hexToRgb(hex)));
-  }
-}
-
-// Condition tint amounts, as [target rgb, strength], for the altitude-driven
-// palette (mirrors the discrete skyPalette switch above).
-const CONDITION_TINT = {
-  cloudy: [[86, 92, 104], 0.55], partly: [[110, 120, 135], 0.25],
-  rain: [[44, 52, 66], 0.62], storm: [[26, 30, 42], 0.72],
-  snow: [[150, 158, 172], 0.5], fog: [[150, 152, 158], 0.6],
-};
-
-// Clear-sky palettes as rgb triples, for continuous interpolation by altitude.
-const PHASE_RGB = {};
-for (const k in BASE_PALETTES) PHASE_RGB[k] = BASE_PALETTES[k].map(hexToRgb);
-
-// Continuous sky palette from the sun's true altitude (degrees). Blends between
-// night / twilight / golden / day anchors; twilight leans dawn or dusk.
-function skyPaletteByAltitude(alt, rising, condition) {
-  const twi = rising ? "dawn" : "dusk";
-  const stops = [[-90, "night"], [-10, "night"], [-5, twi], [-1, "golden"], [7, "golden"], [18, "day"], [90, "day"]];
-  let lo = stops[0], hi = stops[stops.length - 1];
-  for (let i = 0; i < stops.length - 1; i++) {
-    if (alt >= stops[i][0] && alt <= stops[i + 1][0]) { lo = stops[i]; hi = stops[i + 1]; break; }
-  }
-  const span = hi[0] - lo[0];
-  const t = span === 0 ? 0 : (alt - lo[0]) / span;
-  const pa = PHASE_RGB[lo[1]], pb = PHASE_RGB[hi[1]];
-  let pal = [0, 1, 2].map((j) => mix(pa[j], pb[j], t));
-  const tint = CONDITION_TINT[condition];
-  if (tint) pal = pal.map((rgb) => mix(rgb, tint[0], tint[1]));
-  return pal.map(rgbToCss);
-}
-
-/* ---------------------------------------------------------------------------
-   Solar position (NOAA low-precision algorithm)
-   ------------------------------------------------------------------------- */
-
-const deg2rad = (d) => (d * Math.PI) / 180;
-const rad2deg = (r) => (r * 180) / Math.PI;
-
-// Sun altitude in degrees (negative = below horizon) for a Date at lat/lon.
-// Accurate to a fraction of a degree — plenty for driving the sky gradient.
-function sunAltitude(date, lat, lon) {
-  const jd = date.getTime() / 86400000 + 2440587.5;     // Julian date
-  const n = jd - 2451545.0;                              // days since J2000
-  const L = ((280.46 + 0.9856474 * n) % 360 + 360) % 360;
-  const g = deg2rad(((357.528 + 0.9856003 * n) % 360 + 360) % 360);
-  const lambda = deg2rad(L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g));
-  const eps = deg2rad(23.439 - 0.0000004 * n);
-  const decl = Math.asin(Math.sin(eps) * Math.sin(lambda));
-  const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
-  const gmst = ((280.46061837 + 360.98564736629 * n) % 360 + 360) % 360;
-  const H = deg2rad(((gmst + lon) % 360 + 360) % 360) - ra;
-  const latR = deg2rad(lat);
-  const alt = Math.asin(
-    Math.sin(latR) * Math.sin(decl) + Math.cos(latR) * Math.cos(decl) * Math.cos(H)
-  );
-  return rad2deg(alt);
-}
-
-const dayOfYear = (d) =>
-  Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000);
-
-// Daylight length in hours for a date/latitude, from the sunrise hour angle.
-// Used only for the day-length *delta* vs yesterday (today's length itself
-// comes from the exact API sunrise/sunset).
-function dayLengthHours(date, lat) {
-  const decl = deg2rad(-23.44 * Math.cos(deg2rad((360 / 365) * (dayOfYear(date) + 10))));
-  const cosH = -Math.tan(deg2rad(lat)) * Math.tan(decl);
-  if (cosH <= -1) return 24;
-  if (cosH >= 1) return 0;
-  return (2 * rad2deg(Math.acos(cosH))) / 15;
-}
 
 /* ---------------------------------------------------------------------------
    DOM references
@@ -364,48 +112,6 @@ function pickIcon(condition, isDay) {
 /* ---------------------------------------------------------------------------
    Background engine (sky palette + orb + condition veil + particles)
    ------------------------------------------------------------------------- */
-
-// Continuous orb position along an east->west arc.
-// Daytime: progress runs sunrise(0) -> sunset(1). Night: sunset -> next sunrise.
-// Returns x/y as viewport percentages, altitude (0 horizon .. 1 peak), and isDay.
-function orbArc(now, sunrise, sunset, sunriseNext) {
-  // Fall back to nominal 06:30 / 20:30 when sun times are unknown.
-  if (!sunrise || !sunset) {
-    const y = now.getFullYear(), mo = now.getMonth(), d = now.getDate();
-    sunrise = new Date(y, mo, d, 6, 30);
-    sunset = new Date(y, mo, d, 20, 30);
-    sunriseNext = new Date(y, mo, d + 1, 6, 30);
-  }
-  const t = now.getTime();
-  const sr = sunrise.getTime(), ss = sunset.getTime();
-  let prog, isDay;
-
-  if (t >= sr && t <= ss) {
-    prog = (t - sr) / (ss - sr);
-    isDay = true;
-  } else {
-    isDay = false;
-    let start, end;
-    if (t > ss) {
-      // Evening into night.
-      start = ss;
-      end = sriseTime(sunriseNext, ss);
-    } else {
-      // Pre-dawn: approximate the previous sunset as ~one day before today's.
-      start = ss - 24 * 3600 * 1000;
-      end = sr;
-    }
-    prog = (t - start) / (end - start);
-  }
-
-  prog = Math.max(0, Math.min(1, prog));
-  const x = 8 + prog * 84;                       // left horizon -> right horizon
-  const alt = Math.sin(prog * Math.PI);          // 0 at horizon, 1 at peak
-  const y = 82 - alt * 70;                        // lower %% = higher on screen
-  return { x, y, alt, isDay };
-}
-const sriseTime = (next, fallbackSunset) =>
-  next ? next.getTime() : fallbackSunset + 10 * 3600 * 1000;
 
 // Mutable sky inputs, refreshed by the weather fetch and re-read every minute.
 const skyState = { condition: "clear", sunrise: null, sunset: null, sunriseNext: null };
@@ -631,75 +337,11 @@ addEventListener("resize", () => {
    24h timeline charts (rain probability + UV index)
    ------------------------------------------------------------------------- */
 
-const pad = (n) => String(n).padStart(2, "0");
-const localDateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
-// The 24 hourly entries for one calendar day ("YYYY-MM-DD"), each flagged
-// with now / past when that day is today.
-function daySlice(times, values, dateStr) {
-  const now = new Date();
-  const isToday = dateStr === localDateStr(now);
-  const out = [];
-  for (let i = 0; i < times.length; i++) {
-    if (!times[i].startsWith(dateStr)) continue;
-    const t = new Date(times[i]);
-    out.push({
-      t, v: values[i] ?? 0,
-      now: isToday && t.getHours() === now.getHours(),
-      past: isToday && t.getHours() < now.getHours(),
-    });
-  }
-  return out;
-}
-
-// Build one hourly chart (bars + axis + peak legend) as HTML strings.
-// kind: "rain" (percent) | "uv" (index, band-coloured).
-function chartHTML(slice, kind, delayBase = 0) {
-  const UV_SCALE = 11;
-  let bars = "", axis = "", peak = 0;
-  slice.forEach((h, i) => {
-    let cls = "bar", style = "", title = "";
-    if (kind === "rain") {
-      peak = Math.max(peak, h.v);
-      cls += " rbar" + (h.v < 5 ? " dry" : "");
-      style = `height:${Math.max(2, h.v)}%`;
-      title = `${pad(h.t.getHours())}:00 — ${h.v}%`;
-    } else {
-      const uv = Math.max(0, h.v);
-      peak = Math.max(peak, uv);
-      cls += " uvbar" + (uv < 0.5 ? " zero" : "");
-      style = `height:${Math.max(2, Math.min(100, (uv / UV_SCALE) * 100))}%`;
-      if (uv >= 0.5) style += `;background:${uvBarColor(uv)}`;
-      title = `${pad(h.t.getHours())}:00 — UV ${Math.round(uv * 10) / 10}`;
-    }
-    if (h.now) cls += " now";
-    if (h.past) cls += " past";
-    style += `;animation-delay:${delayBase + i * 14}ms`;
-    bars += `<div class="${cls}" style="${style}" title="${title}"></div>`;
-    const hr = h.t.getHours();
-    axis += h.now ? `<span class="tick now">now</span>`
-      : hr % 6 === 0 ? `<span class="tick">${pad(hr)}</span>` : "<span></span>";
-  });
-  const peakLabel = kind === "rain"
-    ? (peak > 0 ? `peak ${peak}%` : "dry")
-    : (peak > 0 ? `peak ${Math.round(peak * 10) / 10}` : "none");
-  return { bars, axis, peakLabel };
-}
-
 function renderRain(times, probs) {
   const c = chartHTML(daySlice(times, probs, localDateStr(new Date())), "rain", 760);
   dom.rainBars.innerHTML = c.bars;
   dom.rainAxis.innerHTML = c.axis;
   dom.rainPeak.textContent = c.peakLabel;
-}
-
-// Vivid band colour for UV bars (distinct from the translucent badge tints).
-function uvBarColor(uv) {
-  if (uv < 3) return "linear-gradient(180deg, #7fd29a, rgba(127,210,154,0.4))";
-  if (uv < 6) return "linear-gradient(180deg, #f2d24a, rgba(242,210,74,0.4))";
-  if (uv < 8) return "linear-gradient(180deg, #f0a04b, rgba(240,160,75,0.4))";
-  if (uv < 11) return "linear-gradient(180deg, #e8615a, rgba(232,97,90,0.4))";
-  return "linear-gradient(180deg, #c06fd0, rgba(192,111,208,0.4))";
 }
 
 function renderUV(times, uvs) {
@@ -888,34 +530,6 @@ function currentHourIndex(times) {
   const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}T${String(now.getHours()).padStart(2, "0")}:00`;
   const i = times.indexOf(key);
   return i >= 0 ? i : 0;
-}
-
-/* --- Small time/duration formatters for the conditions + sun panels --- */
-function durHuman(ms) {            // "4h 12m" / "12m" / "5m"
-  const m = Math.max(0, Math.round(ms / 60000));
-  if (m >= 60) { const h = Math.floor(m / 60), r = m % 60; return r ? `${h}h ${r}m` : `${h}h`; }
-  return `${m}m`;
-}
-const durHM = (ms) => { const m = Math.round(ms / 60000); return `${Math.floor(m / 60)}h ${pad(m % 60)}m`; };
-const durMS = (sec) => { const m = Math.floor(sec / 60), s = sec % 60; return m ? `${m}m ${s}s` : `${s}s`; };
-const niceMins = (m) => (m >= 60 ? durHuman(m * 60000) : `${Math.max(5, Math.round(m / 5) * 5)} min`);
-
-// Open-Meteo (timezone=auto) returns local wall-time strings with no offset,
-// e.g. "2026-06-22T21:22". Parse to a true absolute instant using the
-// response's utc_offset_seconds; without this a different city's sun times
-// would be read in the viewer's own timezone (breaking countdowns).
-function apiTime(str, offsetSec) {
-  if (!str) return null;
-  const ms = Date.parse(str + "Z");
-  return isNaN(ms) ? null : new Date(ms - (offsetSec || 0) * 1000);
-}
-
-// Format an absolute Date as a wall clock in the given IANA timezone.
-function zoneHHMM(d, zone) {
-  if (!d) return "—";
-  return new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: zone || undefined,
-  }).format(d);
 }
 
 // Extra current conditions: feels-like, wind (+direction), humidity, pressure.

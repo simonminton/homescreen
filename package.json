@@ -1,0 +1,10 @@
+{
+  "name": "homescreen",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Atmospheric clock + weather homescreen (vanilla JS, no build step)",
+  "scripts": {
+    "test": "node --test"
+  }
+}
