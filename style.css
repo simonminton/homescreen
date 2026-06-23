@@ -282,6 +282,37 @@ body {
 .wclock .wc-city { color: var(--ink-faint); font-size: 0.66rem; }
 .wclock .wc-time { color: var(--ink); font-size: 0.92rem; letter-spacing: 0.08em; font-variant-numeric: tabular-nums; }
 
+/* Settings (gear + popover) */
+.topbar-right { display: flex; align-items: flex-start; gap: 1.2rem; }
+.settings { position: relative; }
+.settings-btn {
+  background: none; border: 0; cursor: pointer;
+  color: var(--ink-faint); font-size: 1rem; line-height: 1; padding: 0.1em;
+  transition: color 0.3s var(--ease), transform 0.4s var(--ease);
+}
+.settings-btn:hover { color: var(--ink); transform: rotate(45deg); }
+.settings-panel {
+  position: absolute; top: 1.8em; right: 0; z-index: 20;
+  display: flex; flex-direction: column; gap: 0.7rem;
+  padding: 0.9rem 1rem;
+  background: rgba(18, 22, 40, 0.82);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--ink-line); border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 1.4rem; }
+.set-label { font-size: 0.6rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-faint); }
+.seg { display: flex; border: 1px solid var(--ink-line); border-radius: 4px; overflow: hidden; }
+.seg button {
+  background: none; border: 0; cursor: pointer;
+  color: var(--ink-faint); font-family: var(--font-mono);
+  font-size: 0.66rem; letter-spacing: 0.1em; padding: 0.3em 0.7em;
+  transition: background 0.2s var(--ease), color 0.2s var(--ease);
+}
+.seg button + button { border-left: 1px solid var(--ink-line); }
+.seg button:hover { color: var(--ink); }
+.seg button.on { background: rgba(255, 255, 255, 0.14); color: var(--ink); }
+
 /* Hero time */
 .hero {
   align-self: center;

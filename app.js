@@ -18,6 +18,23 @@ const FALLBACK = { name: "London", lat: 51.5074, lon: -0.1278 };
 const WEATHER_REFRESH_MS = 15 * 60 * 1000;
 
 /* ---------------------------------------------------------------------------
+   User settings (persisted): temperature unit + clock format
+   ------------------------------------------------------------------------- */
+
+const SET_KEY = "hs:settings";
+const settings = (() => {
+  try { return { units: "c", clock: "24", ...(JSON.parse(localStorage.getItem(SET_KEY)) || {}) }; }
+  catch { return { units: "c", clock: "24" }; }
+})();
+const saveSettings = () => { try { localStorage.setItem(SET_KEY, JSON.stringify(settings)); } catch {} };
+
+const is12h = () => settings.clock === "12";
+const toUnit = (c) => (settings.units === "f" ? cToF(c) : c); // °C value -> chosen unit
+const tDeg = (c) => round(toUnit(c)) + "°";                   // formatted, primary unit
+const tPair = (c) =>                                          // "33°C / 92°F", primary first
+  settings.units === "f" ? `${round(cToF(c))}°F / ${round(c)}°C` : `${round(c)}°C / ${round(cToF(c))}°F`;
+
+/* ---------------------------------------------------------------------------
    DOM references
    ------------------------------------------------------------------------- */
 
@@ -27,6 +44,8 @@ const dom = {
   locName: el("locName"), location: el("location"), preciseBtn: el("preciseBtn"),
   locPrev: el("locPrev"), locNext: el("locNext"), locTime: el("locTime"),
   worldClocks: el("worldClocks"),
+  settingsBtn: el("settingsBtn"), settingsPanel: el("settingsPanel"),
+  setUnits: el("setUnits"), setClock: el("setClock"),
   temp: el("temp"), tempC: el("tempC"), tempF: el("tempF"),
   condition: el("condition"), tempHi: el("tempHi"), tempLo: el("tempLo"),
   wxIcon: el("wxIcon"), uv: el("uv"), uvValue: el("uvValue"), uvBand: el("uvBand"),
@@ -53,30 +72,40 @@ const dom = {
 
 const SYSTEM_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+// Time-of-day formatter honouring the 12/24h setting, optionally for a zone.
 const fmtTime = (zone) =>
   new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: zone,
+    hour: "2-digit", minute: "2-digit",
+    ...(is12h() ? { hour12: true } : { hourCycle: "h23" }),
+    ...(zone ? { timeZone: zone } : {}),
   });
 const fmtDate = new Intl.DateTimeFormat("en-GB", {
   weekday: "long", day: "numeric", month: "long", year: "numeric",
 });
 
+// The giant hero clock stays clean (no am/pm) even in 12h mode.
+const heroTime = (now) =>
+  is12h() ? `${now.getHours() % 12 || 12}:${pad(now.getMinutes())}` : `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
 const cities = secondaryCities(SYSTEM_TZ);
-const cityFormatters = cities.map((c) => ({ ...c, fmt: fmtTime(c.zone) }));
+let worldFmts = cities.map((c) => fmtTime(c.zone));
 
 // Build secondary clock markup once.
-dom.worldClocks.innerHTML = cityFormatters
+dom.worldClocks.innerHTML = cities
   .map((c) => `<button type="button" class="wclock" data-lat="${c.lat}" data-lon="${c.lon}" data-name="${c.city}" title="Show weather for ${c.city}"><span class="wc-city">${c.city}</span><span class="wc-time" data-zone="${c.zone}">--:--</span></button>`)
   .join("");
 const wclockNodes = [...dom.worldClocks.querySelectorAll(".wc-time")];
 
+// Rebuild zone formatters after a clock-format change.
+function applyClockFormat() { worldFmts = cities.map((c) => fmtTime(c.zone)); }
+
 function tickClock() {
   const now = new Date();
-  const t = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
+  const t = heroTime(now);
   dom.time.textContent = t;
   dom.date.textContent = fmtDate.format(now);
   document.title = t + " — Homescreen";
-  cityFormatters.forEach((c, i) => { wclockNodes[i].textContent = c.fmt.format(now); });
+  cities.forEach((c, i) => { wclockNodes[i].textContent = worldFmts[i].format(now); });
   updateLocTime();
 }
 
@@ -356,7 +385,8 @@ function renderUV(times, uvs) {
 
 function renderTempChart(times, temps) {
   if (!temps) { dom.tempChart.hidden = true; return; }
-  const { svg, min, max, now } = tempChartSVG(daySlice(times, temps, localDateStr(new Date())));
+  const slice = daySlice(times, temps, localDateStr(new Date())).map((h) => ({ ...h, v: toUnit(h.v) }));
+  const { svg, min, max, now } = tempChartSVG(slice);
   if (!svg) { dom.tempChart.hidden = true; return; }
   // Keep the marker nodes; only replace the <svg>.
   const old = dom.tempCurve.querySelector("svg");
@@ -395,16 +425,22 @@ function drawerHTML(i) {
   const dateStr = d.time[i];
   const uv = chartHTML(daySlice(h.time, h.uv_index || [], dateStr), "uv");
   const rn = chartHTML(daySlice(h.time, h.precipitation_probability || [], dateStr), "rain");
-  // Sun times are the location's local wall-time strings ("…T04:44"); show the
-  // HH:MM directly rather than reparsing in the viewer's timezone.
-  const hhmmOf = (s) => (s && s.length >= 16 ? s.slice(11, 16) : "—");
+  // Sun times are the location's local wall-time strings ("…T04:44"); read the
+  // HH:MM directly (no tz reparse), then honour the 12/24h setting.
+  const hhmmOf = (s) => {
+    if (!s || s.length < 16) return "—";
+    let [h, m] = s.slice(11, 16).split(":").map(Number);
+    if (!is12h()) return s.slice(11, 16);
+    const ap = h < 12 ? "am" : "pm";
+    return `${h % 12 || 12}:${pad(m)} ${ap}`;
+  };
   const hi = d.temperature_2m_max[i], lo = d.temperature_2m_min[i];
   return `
     <div class="drawer-meta">
       <span>SUNRISE <b>${hhmmOf(d.sunrise[i])}</b></span>
       <span>SUNSET <b>${hhmmOf(d.sunset[i])}</b></span>
-      <span>HIGH <b>${round(hi)}°C / ${round(cToF(hi))}°F</b></span>
-      <span>LOW <b>${round(lo)}°C / ${round(cToF(lo))}°F</b></span>
+      <span>HIGH <b>${tPair(hi)}</b></span>
+      <span>LOW <b>${tPair(lo)}</b></span>
     </div>
     <div class="drawer-charts">
       <div class="chart">
@@ -452,10 +488,10 @@ function renderWeek(daily) {
         <div class="d-cond">${cond.label}</div>
         <div class="d-rain">${rain > 0 ? `<span class="rdrop">♦</span>${rain}%` : '<span class="muted">—</span>'}</div>
         <div class="d-uv"><span class="uv-chip" style="background:${band.color}">${uv == null ? "—" : Math.round(uv)}</span><span class="d-uvlabel">${band.label}</span></div>
-        <div class="d-range" title="${round(cToF(lo))}°F – ${round(cToF(hi))}°F">
-          <span class="t-lo">${round(lo)}°</span>
+        <div class="d-range" title="${tPair(lo)} – ${tPair(hi)}">
+          <span class="t-lo">${tDeg(lo)}</span>
           <span class="range-track"><span class="range-fill" style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%"></span></span>
-          <span class="t-hi">${round(hi)}°</span>
+          <span class="t-hi">${tDeg(hi)}</span>
         </div>
         <span class="d-chev" aria-hidden="true">›</span>
       </button>
@@ -562,7 +598,7 @@ function currentHourIndex(times) {
 function renderDetails(cur) {
   const parts = [];
   if (cur.apparent_temperature != null)
-    parts.push(`<span class="wd"><span class="wd-l">Feels</span> ${round(cur.apparent_temperature)}°</span>`);
+    parts.push(`<span class="wd"><span class="wd-l">Feels</span> ${tDeg(cur.apparent_temperature)}</span>`);
   if (cur.wind_speed_10m != null) {
     const dir = cur.wind_direction_10m ?? 0;
     parts.push(`<span class="wd"><span class="wd-l">Wind</span> ${round(cur.wind_speed_10m)} km/h ` +
@@ -640,8 +676,8 @@ function renderSun(daily, lat, offsetSec, zone) {
   const srNext = apiTime(daily.sunrise[1], offsetSec);
   const now = new Date();
 
-  dom.sunriseVal.textContent = zoneHHMM(sr, zone);
-  dom.sunsetVal.textContent = zoneHHMM(ss, zone);
+  dom.sunriseVal.textContent = zoneHHMM(sr, zone, is12h());
+  dom.sunsetVal.textContent = zoneHHMM(ss, zone, is12h());
 
   let label = "SUNRISE IN", when = sr;
   if (now >= sr && now < ss) { label = "SUNSET IN"; when = ss; }
@@ -659,7 +695,7 @@ function renderSun(daily, lat, offsetSec, zone) {
   const gh = now >= sr && now < ss
     ? [new Date(ss.getTime() - 50 * 60000), ss]
     : [sr, new Date(sr.getTime() + 50 * 60000)];
-  dom.goldenVal.textContent = `${zoneHHMM(gh[0], zone)}–${zoneHHMM(gh[1], zone)}`;
+  dom.goldenVal.textContent = `${zoneHHMM(gh[0], zone, is12h())}–${zoneHHMM(gh[1], zone, is12h())}`;
   dom.sunPanel.hidden = false;
 }
 
@@ -672,10 +708,7 @@ function updateLocTime() {
     return;
   }
   try {
-    const t = new Intl.DateTimeFormat("en-GB", {
-      hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: locZone,
-    }).format(new Date());
-    dom.locTime.textContent = `${t} local`;
+    dom.locTime.textContent = `${fmtTime(locZone).format(new Date())} local`;
     dom.locTime.hidden = false;
   } catch { dom.locTime.hidden = true; }
 }
@@ -687,16 +720,17 @@ function renderWeather(data) {
   const isDay = cur.is_day === 1;
 
   const tc = cur.temperature_2m;
-  dom.temp.textContent = round(tc) + "°";
-  dom.tempC.textContent = round(tc) + "°C";
-  dom.tempF.textContent = round(cToF(tc)) + "°F";
+  dom.temp.textContent = tDeg(tc);
+  // Alt line shows the primary unit first, the other second.
+  dom.tempC.textContent = settings.units === "f" ? `${round(cToF(tc))}°F` : `${round(tc)}°C`;
+  dom.tempF.textContent = settings.units === "f" ? `${round(tc)}°C` : `${round(cToF(tc))}°F`;
   dom.condition.textContent = cond.label;
   dom.wxIcon.innerHTML = pickIcon(cond.key, isDay);
 
   const hi = data.daily.temperature_2m_max[0];
   const lo = data.daily.temperature_2m_min[0];
-  dom.tempHi.textContent = `${round(hi)}° / ${round(cToF(hi))}°`;
-  dom.tempLo.textContent = `${round(lo)}° / ${round(cToF(lo))}°`;
+  dom.tempHi.textContent = tDeg(hi);
+  dom.tempLo.textContent = tDeg(lo);
 
   // Current UV from hourly (falls back to daily max).
   let uv = data.daily.uv_index_max?.[0];
@@ -747,6 +781,7 @@ function showWeatherError() {
 
 let coords = null;
 let lastWeatherAt = 0;
+let lastData = null, lastAir = null;   // kept so settings changes can re-render
 
 async function loadWeather() {
   if (!coords) return;
@@ -757,12 +792,30 @@ async function loadWeather() {
       fetchWeather(coords.lat, coords.lon),
       fetchAir(coords.lat, coords.lon),
     ]);
+    lastData = data; lastAir = air;
     renderWeather(data);
     renderAir(air);
     lastWeatherAt = Date.now();
   } catch (e) {
     console.error("[homescreen] weather fetch failed:", e);
     showWeatherError();
+  }
+}
+
+// Re-apply unit/clock settings to the existing data without refetching.
+function applySettings() {
+  saveSettings();
+  applyClockFormat();
+  tickClock();
+  if (lastData) { renderWeather(lastData); renderAir(lastAir); }
+  syncSettingsUI();
+}
+
+// Reflect current settings in the popover's segmented buttons.
+function syncSettingsUI() {
+  for (const seg of [dom.setUnits, dom.setClock]) {
+    const key = seg === dom.setUnits ? "units" : "clock";
+    seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === settings[key]));
   }
 }
 
@@ -830,8 +883,29 @@ async function setLocation(loc, source) {
 }
 
 async function init() {
+  syncSettingsUI();
   tickClock();
   setInterval(tickClock, 1000);
+
+  // Settings popover: toggle open, segmented choices, click-away to close.
+  dom.settingsBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = dom.settingsPanel.hidden;
+    dom.settingsPanel.hidden = !open;
+    dom.settingsBtn.setAttribute("aria-expanded", String(open));
+  });
+  dom.settingsPanel.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-v]");
+    if (!btn) return;
+    settings[btn.parentElement === dom.setUnits ? "units" : "clock"] = btn.dataset.v;
+    applySettings();
+  });
+  document.addEventListener("click", (e) => {
+    if (!dom.settingsPanel.hidden && !e.target.closest(".settings")) {
+      dom.settingsPanel.hidden = true;
+      dom.settingsBtn.setAttribute("aria-expanded", "false");
+    }
+  });
 
   // Provisional background before data arrives, then keep the orb moving.
   updateSky();

@@ -51,7 +51,26 @@
         <span class="loc-time" id="locTime" hidden></span>
         <button class="precise-btn" id="preciseBtn" hidden>update location</button>
       </div>
-      <div class="world-clocks" id="worldClocks"></div>
+      <div class="topbar-right">
+        <div class="world-clocks" id="worldClocks"></div>
+        <div class="settings">
+          <button class="settings-btn" id="settingsBtn" type="button" aria-label="Settings" aria-expanded="false">⚙</button>
+          <div class="settings-panel" id="settingsPanel" hidden>
+            <div class="set-row">
+              <span class="set-label">Units</span>
+              <div class="seg" id="setUnits">
+                <button type="button" data-v="c">°C</button><button type="button" data-v="f">°F</button>
+              </div>
+            </div>
+            <div class="set-row">
+              <span class="set-label">Clock</span>
+              <div class="seg" id="setClock">
+                <button type="button" data-v="24">24h</button><button type="button" data-v="12">12h</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </header>
 
     <!-- Hero -->
@@ -159,6 +178,6 @@
     <div class="week-panel" id="weekPanel"></div>
   </section>
 
-  <script type="module" src="app.js?v=8"></script>
+  <script type="module" src="app.js?v=9"></script>
 </body>
 </html>
