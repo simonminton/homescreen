@@ -6,13 +6,13 @@
    this file is the DOM + orchestration layer.
    ========================================================================= */
 
-import { cToF, round, pad, localDateStr, durHuman, durHM, durMS, niceMins, apiTime, zoneHHMM, compass } from "./lib/format.js";
-import { wmoToCondition, uvBand, aqiBand, pollenBand } from "./lib/weather.js";
-import { sunAltitude, dayLengthHours } from "./lib/solar.js";
-import { moonPhaseFrac, moonInfo, moonSVG } from "./lib/moon.js";
-import { mix, skyPalette, skyPaletteByAltitude, timeOfDayPhase, orbArc } from "./lib/sky.js";
-import { daySlice, chartHTML, uvBarColor, tempChartSVG } from "./lib/charts.js";
-import { LONDON, NEW_YORK, secondaryCities } from "./lib/cities.js";
+import { cToF, round, pad, localDateStr, durHuman, durHM, durMS, niceMins, apiTime, zoneHHMM, compass } from "./lib/format.js?v=545a1bd0";
+import { wmoToCondition, uvBand, aqiBand, pollenBand } from "./lib/weather.js?v=545a1bd0";
+import { sunAltitude, dayLengthHours } from "./lib/solar.js?v=545a1bd0";
+import { moonPhaseFrac, moonInfo, moonSVG } from "./lib/moon.js?v=545a1bd0";
+import { mix, skyPalette, skyPaletteByAltitude, timeOfDayPhase, orbArc } from "./lib/sky.js?v=545a1bd0";
+import { daySlice, chartHTML, uvBarColor, tempChartSVG } from "./lib/charts.js?v=545a1bd0";
+import { LONDON, NEW_YORK, secondaryCities } from "./lib/cities.js?v=545a1bd0";
 
 const FALLBACK = { name: "London", lat: 51.5074, lon: -0.1278 };
 const WEATHER_REFRESH_MS = 15 * 60 * 1000;
@@ -52,7 +52,8 @@ const dom = {
   moonStat: el("moonStat"), moonIcon: el("moonIcon"), moonName: el("moonName"), moonIllum: el("moonIllum"),
   aqiStat: el("aqiStat"), aqiValue: el("aqiValue"), aqiBandEl: el("aqiBandEl"),
   pollenStat: el("pollenStat"), pollenBandEl: el("pollenBandEl"),
-  nowcast: el("nowcast"), wxDetails: el("wxDetails"),
+  nowcast: el("nowcast"), wxDetails: el("wxDetails"), airDetail: el("airDetail"),
+  updated: el("updated"),
   sunPanel: el("sunPanel"), sunNextLabel: el("sunNextLabel"), sunNextVal: el("sunNextVal"),
   sunriseVal: el("sunriseVal"), sunsetVal: el("sunsetVal"),
   dayLenVal: el("dayLenVal"), dayDeltaVal: el("dayDeltaVal"), goldenVal: el("goldenVal"),
@@ -107,6 +108,15 @@ function tickClock() {
   document.title = t + " — Homescreen";
   cities.forEach((c, i) => { wclockNodes[i].textContent = worldFmts[i].format(now); });
   updateLocTime();
+  updateFreshness();
+}
+
+// "updated just now / 3m ago / 1h ago" since the last successful weather fetch.
+function updateFreshness() {
+  if (!lastWeatherAt) { dom.updated.hidden = true; return; }
+  const mins = Math.floor((Date.now() - lastWeatherAt) / 60000);
+  dom.updated.textContent = "updated " + (mins < 1 ? "just now" : mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ago`);
+  dom.updated.hidden = false;
 }
 
 /* ---------------------------------------------------------------------------
@@ -158,6 +168,8 @@ function updateSky(now = new Date()) {
     const alt = sunAltitude(now, coords.lat, coords.lon);
     const rising = sunAltitude(new Date(now.getTime() + 6e5), coords.lat, coords.lon) > alt;
     [a, b, c] = skyPaletteByAltitude(alt, rising, condition);
+    // Warmly highlight the sun panel while the sun sits in the golden band.
+    dom.sunPanel.classList.toggle("golden-now", alt > -4 && alt < 6);
   } else {
     [a, b, c] = skyPalette(phase, condition);
   }
@@ -642,10 +654,16 @@ function renderNowcast(minutely) {
   node.hidden = !msg;
 }
 
-// Air quality (US AQI) + pollen chips. Pollen hides itself outside Europe.
+const POLLEN_TYPES = [
+  ["alder_pollen", "Alder"], ["birch_pollen", "Birch"], ["grass_pollen", "Grass"],
+  ["mugwort_pollen", "Mugwort"], ["olive_pollen", "Olive"], ["ragweed_pollen", "Ragweed"],
+];
+
+// Air quality (US AQI) + pollen chips, with an expandable PM2.5 / dominant-
+// pollen detail line (toggled by clicking the AQI block). Pollen is Europe-only.
 function renderAir(air) {
   const c = air && air.current;
-  if (!c) { dom.aqiStat.hidden = true; dom.pollenStat.hidden = true; return; }
+  if (!c) { dom.aqiStat.hidden = dom.pollenStat.hidden = dom.airDetail.hidden = true; return; }
 
   const aqi = c.us_aqi ?? c.european_aqi;
   if (aqi != null) {
@@ -656,14 +674,24 @@ function renderAir(air) {
     dom.aqiStat.hidden = false;
   } else dom.aqiStat.hidden = true;
 
-  const grains = ["alder_pollen", "birch_pollen", "grass_pollen", "mugwort_pollen", "olive_pollen", "ragweed_pollen"]
-    .map((k) => c[k]).filter((v) => v != null && !isNaN(v));
-  if (grains.length) {
-    const b = pollenBand(Math.max(...grains));
-    dom.pollenBandEl.textContent = b.label;
-    dom.pollenBandEl.style.background = b.color;
+  const present = POLLEN_TYPES.map(([k, name]) => [c[k], name]).filter(([v]) => v != null && !isNaN(v));
+  if (present.length) {
+    const peak = present.reduce((a, b) => (b[0] > a[0] ? b : a));
+    const band = pollenBand(peak[0]);
+    dom.pollenBandEl.textContent = band.label;
+    dom.pollenBandEl.style.background = band.color;
     dom.pollenStat.hidden = false;
   } else dom.pollenStat.hidden = true;
+
+  // Detail line (kept collapsed until the user expands it).
+  const parts = [];
+  if (c.pm2_5 != null) parts.push(`PM2.5 ${Math.round(c.pm2_5)} µg/m³`);
+  if (present.length) {
+    const peak = present.reduce((a, b) => (b[0] > a[0] ? b : a));
+    parts.push(`${peak[1]} pollen · ${pollenBand(peak[0]).label}`);
+  }
+  dom.airDetail.textContent = parts.join("   ·   ");
+  if (!parts.length) dom.airDetail.hidden = true;
 }
 
 // Sun panel: next event, sunrise/sunset, day length (+ delta), golden hour.
@@ -973,12 +1001,20 @@ async function init() {
     );
   });
 
+  // Click the air-quality block to expand the PM2.5 / pollen detail.
+  dom.aqiStat.addEventListener("click", () => {
+    if (dom.airDetail.textContent) dom.airDetail.hidden = !dom.airDetail.hidden;
+  });
+
   // Carousel arrows (and ←/→ keys) cycle through the saved locations.
   dom.locPrev.hidden = false;
   dom.locNext.hidden = false;
   dom.locPrev.addEventListener("click", () => carouselGo(-1));
   dom.locNext.addEventListener("click", () => carouselGo(1));
   addEventListener("keydown", (e) => {
+    // Stay out of the way of typing and browser/OS shortcuts.
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.target.closest("input, textarea, select, [contenteditable]")) return;
     if (e.key === "ArrowLeft") carouselGo(-1);
     else if (e.key === "ArrowRight") carouselGo(1);
   });

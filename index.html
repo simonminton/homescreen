@@ -12,8 +12,8 @@
   />
   <meta name="theme-color" content="#0a0e27" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='34' fill='%23ffd98a'/></svg>" />
-  <!-- Bump ?v= on style.css and app.js together when deploying changes -->
-  <link rel="stylesheet" href="style.css?v=6" />
+  <!-- ?v= cache-busting hashes are written by `npm run stamp` (see stamp.mjs) -->
+  <link rel="stylesheet" href="style.css?v=545a1bd0" />
 </head>
 <body>
   <!-- Atmospheric layers -->
@@ -50,6 +50,7 @@
         <button class="loc-nav" id="locNext" type="button" aria-label="Next location" hidden>›</button>
         <span class="loc-time" id="locTime" hidden></span>
         <button class="precise-btn" id="preciseBtn" hidden>update location</button>
+        <span class="updated" id="updated" hidden></span>
       </div>
       <div class="topbar-right">
         <div class="world-clocks" id="worldClocks"></div>
@@ -118,6 +119,7 @@
 
       <div class="wx-nowcast" id="nowcast" hidden></div>
       <div class="wx-details" id="wxDetails" hidden></div>
+      <div class="air-detail" id="airDetail" hidden></div>
 
       <div class="wx-error" id="wxError" hidden></div>
     </section>
@@ -178,6 +180,6 @@
     <div class="week-panel" id="weekPanel"></div>
   </section>
 
-  <script type="module" src="app.js?v=9"></script>
+  <script type="module" src="app.js?v=545a1bd0"></script>
 </body>
 </html>

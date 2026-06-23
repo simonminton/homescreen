@@ -428,6 +428,7 @@ body {
 }
 .loc-nav:hover { color: var(--ink); }
 .loc-time { color: var(--ink-faint); font-size: 0.64rem; letter-spacing: 0.14em; font-variant-numeric: tabular-nums; }
+.updated { color: var(--ink-faint); font-size: 0.58rem; letter-spacing: 0.14em; opacity: 0.7; }
 
 /* Rain nowcast line + extra current-condition details */
 .wx-nowcast {
@@ -446,6 +447,15 @@ body {
 .wx-details .wd-l { color: var(--ink-faint); text-transform: uppercase; font-size: 0.58rem; letter-spacing: 0.18em; margin-right: 0.45em; }
 .wx-details .wd-arrow { display: inline-block; font-size: 0.9em; }
 
+/* Expandable air-quality detail (PM2.5 + dominant pollen) */
+.aqi-stat { cursor: pointer; }
+.aqi-stat:hover .uv-label { color: var(--ink-soft); }
+.air-detail {
+  margin-top: 0.6rem; text-align: center;
+  font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
 /* Sun & day-length panel */
 .sun-panel {
   display: flex; flex-wrap: wrap; justify-content: center;
@@ -460,6 +470,10 @@ body {
 .sun-val { font-size: 0.98rem; color: var(--ink); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
 .sun-delta { font-family: var(--font-mono); font-size: 0.6rem; color: var(--ink-soft); }
 .sun-next .sun-val { color: #ffd98a; }
+/* Warm highlight while the sun is in the golden band */
+.sun-panel { transition: border-color 1.2s var(--ease); }
+.sun-panel.golden-now { border-top-color: rgba(255, 198, 120, 0.55); }
+.sun-panel.golden-now .sun-next .sun-val { text-shadow: 0 0 16px rgba(255, 198, 120, 0.75); }
 
 .wx-error {
   margin-top: 0.4rem;

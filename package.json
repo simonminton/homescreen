@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Atmospheric clock + weather homescreen (vanilla JS, no build step)",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "stamp": "node stamp.mjs"
   }
 }
